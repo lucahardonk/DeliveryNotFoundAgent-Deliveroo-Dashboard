@@ -362,6 +362,17 @@
     }
 
     function connect() {
+        // First, fetch all current agents via REST API to ensure we don't miss any
+        fetch("/api/state")
+            .then(res => res.json())
+            .then(state => {
+                for (const [agentId, snapshot] of Object.entries(state)) {
+                    applySnapshot(agentId, snapshot);
+                }
+            })
+            .catch(err => console.warn("Failed to fetch initial state:", err));
+
+        // Then connect to SSE for live updates
         const es = new EventSource("/events");
         es.onmessage = (e) => {
             let msg;

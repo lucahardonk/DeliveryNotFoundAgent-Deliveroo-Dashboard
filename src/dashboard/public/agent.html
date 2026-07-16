@@ -290,6 +290,20 @@
 
     // ── SSE handling ────────────────────────────────────────────────────
     function connect() {
+        // First, fetch initial state via REST API
+        fetch(`/api/agent/${agentId}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (data) {
+                    snapshot = data;
+                    render();
+                }
+            })
+            .catch(() => {
+                console.warn(`Agent ${agentId} not found yet, waiting for updates...`);
+            });
+
+        // Then connect to SSE for live updates
         const es = new EventSource(`/events/${agentId}`);
         es.onmessage = (e) => {
             let msg;
