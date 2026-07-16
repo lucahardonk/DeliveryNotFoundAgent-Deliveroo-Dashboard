@@ -20,6 +20,29 @@ function serializeState() {
 
 const app = express();
 
+// Parse JSON bodies (needed for agent ingestion). Large maps can be big.
+app.use(express.json({ limit: '10mb' }));
+
+// ── Agent data ingestion (HTTP) ─────────────────────────────────────────
+// These endpoints let agents running in SEPARATE Node processes push their
+// state to the single dashboard server. Each `node src/main.js` is its own
+// process with its own in-memory bridge, so cross-process data must travel
+// over HTTP to reach the one server that serves the dashboard.
+
+app.post('/ingest/register', (req, res) => {
+    const { agentId, worldMap } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    bridge.registerAgent(agentId, worldMap);
+    res.json({ ok: true });
+});
+
+app.post('/ingest/update', (req, res) => {
+    const { agentId, snapshot } = req.body || {};
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    bridge.update(agentId, snapshot);
+    res.json({ ok: true });
+});
+
 // Serve main dashboard (all agents)
 app.get('/', (_req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));

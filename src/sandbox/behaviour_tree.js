@@ -3,7 +3,7 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
 import {PathFinder} from "#MultiAgentSystem/BDI_Agent/capabilities/Navigation/PathFinder.js";
 import {MapAnalysis} from "#MultiAgentSystem/BDI_Agent/capabilities/Analysis/MapAnalysis.js";
 import {TILE_TYPES} from "#types/world.js";
-import { bridge } from '../dashboard/DashboardBridge.js';
+import { dashboardClient as bridge } from '../dashboard/DashboardClient.js';
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
