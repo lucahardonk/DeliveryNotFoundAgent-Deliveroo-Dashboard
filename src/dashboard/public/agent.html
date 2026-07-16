@@ -3,30 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deliveroo Dashboard</title>
+    <title>Agent Dashboard</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
     <header>
-        <h1>🗺 DELIVEROO DASHBOARD</h1>
+        <h1>🤖 AGENT DASHBOARD</h1>
         <span class="live-indicator"><span class="live-dot"></span> LIVE</span>
-        <div class="tabs" id="tabs"></div>
+        <a href="/" class="back-link">← Back to All Agents</a>
     </header>
 
-    <div class="container">
-        <!-- Global view: all agents on the shared map -->
-        <div class="panel global-view">
-            <h2>Global View</h2>
-            <div class="canvas-wrap">
-                <canvas id="globalCanvas" width="400" height="400"></canvas>
-            </div>
-        </div>
-
-        <!-- Per-agent panels (created dynamically) -->
-        <div class="panel agent-panels" id="agentPanels">
-            <h2>Per-Agent Panel</h2>
-            <div id="panelsHost">
-                <div class="empty" id="emptyMsg">Waiting for agents…</div>
+    <div class="container single-agent">
+        <div class="panel agent-panel active" id="agentPanel">
+            <h2 id="agentTitle">Loading...</h2>
+            <div class="agent-body">
+                <div class="canvas-column">
+                    <div class="canvas-wrap">
+                        <h3>Map</h3>
+                        <canvas id="mapCanvas" width="400" height="400"></canvas>
+                    </div>
+                    <div class="canvas-wrap">
+                        <h3>Heatmap (Parcel Sightings)</h3>
+                        <canvas id="heatCanvas" width="400" height="400"></canvas>
+                    </div>
+                </div>
+                <div class="stats" id="statsPanel"></div>
             </div>
         </div>
     </div>
@@ -35,6 +36,9 @@
 (() => {
     "use strict";
 
+    // Extract agent ID from URL path /agent/:id
+    const agentId = window.location.pathname.split('/').pop();
+    
     // ── Config ──────────────────────────────────────────────────────────
     const MAX_CANVAS = 400;
     const COLORS = {
@@ -50,14 +54,12 @@
     };
 
     // ── State ───────────────────────────────────────────────────────────
-    /** @type {Object<string, object>} agentId -> latest snapshot */
-    const agents = {};
-    let activeAgentId = null;
+    let snapshot = null;
 
-    const tabsEl = document.getElementById("tabs");
-    const panelsHost = document.getElementById("panelsHost");
-    const emptyMsg = document.getElementById("emptyMsg");
-    const globalCanvas = document.getElementById("globalCanvas");
+    const agentTitle = document.getElementById("agentTitle");
+    const mapCanvas = document.getElementById("mapCanvas");
+    const heatCanvas = document.getElementById("heatCanvas");
+    const statsPanel = document.getElementById("statsPanel");
 
     // ── Helpers ─────────────────────────────────────────────────────────
     function formatTime(ms) {
@@ -70,20 +72,15 @@
     function tileColor(v) {
         if (v === "1") return COLORS.floor;
         if (v === "2") return COLORS.delivery;
-        return COLORS.wall; // "0", null, undefined
+        return COLORS.wall;
     }
 
-    /** Computes cell size (in px) so the map fits within MAX_CANVAS. */
     function computeCell(worldMap) {
         const w = worldMap?.width || 1;
         const h = worldMap?.height || 1;
         return Math.max(2, Math.floor(MAX_CANVAS / Math.max(w, h)));
     }
 
-    /**
-     * Infers a human-readable agent state from its destination tile type.
-     * @returns {string}
-     */
     function inferState(snapshot) {
         const dest = snapshot.destination;
         if (!dest) return "EXPLORING";
@@ -98,14 +95,7 @@
     }
 
     // ── Canvas drawing ──────────────────────────────────────────────────
-    /**
-     * Shared map draw function used for both the global and per-agent maps.
-     * @param {HTMLCanvasElement} canvas
-     * @param {object} snapshot     the "focus" agent snapshot (for path/dest)
-     * @param {object[]} allAgents  every known agent snapshot (drawn as markers)
-     * @param {boolean} focusIsSelf whether snapshot's own marker is "self"
-     */
-    function drawMap(canvas, snapshot, allAgents, focusIsSelf) {
+    function drawMap(canvas, snapshot) {
         const worldMap = snapshot.worldMap;
         if (!worldMap || !worldMap.tiles) return;
 
@@ -118,7 +108,6 @@
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Map Y so that y=0 is at the bottom (matches Deliveroo coords).
         const py = (y) => (h - 1 - y) * cell;
 
         // Tiles
@@ -129,7 +118,7 @@
             }
         }
 
-        // Planned path (from focus agent)
+        // Planned path
         const path = snapshot.currentPath || [];
         if (path.length > 0) {
             ctx.save();
@@ -146,7 +135,7 @@
             ctx.restore();
         }
 
-        // Destination tile (magenta border)
+        // Destination tile
         if (snapshot.destination) {
             const d = snapshot.destination;
             ctx.save();
@@ -156,7 +145,7 @@
             ctx.restore();
         }
 
-        // Free parcels (yellow squares)
+        // Free parcels
         const parcels = snapshot.sensedParcels || [];
         for (const p of parcels) {
             if (p.carriedBy != null) continue;
@@ -169,21 +158,19 @@
             );
         }
 
-        // Agents
+        // Agent (self)
         const r = Math.max(3, cell * 0.4);
-        for (const a of allAgents) {
-            if (a.x == null || a.y == null) continue;
-            const cx = a.x * cell + cell / 2;
-            const cy = py(a.y) + cell / 2;
-            const isFocus = a.agentId === snapshot.agentId;
-            ctx.fillStyle = (isFocus && focusIsSelf) ? COLORS.self : COLORS.other;
+        if (snapshot.x != null && snapshot.y != null) {
+            const cx = snapshot.x * cell + cell / 2;
+            const cy = py(snapshot.y) + cell / 2;
+            ctx.fillStyle = COLORS.self;
             ctx.beginPath();
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // Carried parcel indicator (small green dot on the agent)
-            const carried = (a.sensedParcels || []).filter(
-                p => p.carriedBy === a.agentId
+            // Carried parcel indicator
+            const carried = (snapshot.sensedParcels || []).filter(
+                p => p.carriedBy === snapshot.agentId
             );
             if (carried.length > 0) {
                 ctx.fillStyle = COLORS.carried;
@@ -193,6 +180,24 @@
             }
 
             // Name label
+            if (snapshot.name && cell >= 8) {
+                ctx.fillStyle = "#c9d1d9";
+                ctx.font = `${Math.max(8, cell * 0.5)}px monospace`;
+                ctx.fillText(snapshot.name, cx + r + 1, cy - r);
+            }
+        }
+
+        // Other agents
+        const otherAgents = snapshot.sensedAgents || [];
+        for (const a of otherAgents) {
+            if (a.x == null || a.y == null) continue;
+            const cx = a.x * cell + cell / 2;
+            const cy = py(a.y) + cell / 2;
+            ctx.fillStyle = COLORS.other;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+
             if (a.name && cell >= 8) {
                 ctx.fillStyle = "#c9d1d9";
                 ctx.font = `${Math.max(8, cell * 0.5)}px monospace`;
@@ -201,7 +206,6 @@
         }
     }
 
-    /** Draws the cumulative parcel-sighting heatmap. */
     function drawHeatmap(canvas, snapshot) {
         const worldMap = snapshot.worldMap;
         const heatmap = snapshot.heatmap;
@@ -247,7 +251,6 @@
         }
     }
 
-    // ── Stats rendering ─────────────────────────────────────────────────
     function renderStats(el, snapshot) {
         const carried = (snapshot.sensedParcels || []).filter(
             p => p.carriedBy === snapshot.agentId
@@ -277,105 +280,30 @@
         `;
     }
 
-    // ── Tab / panel management ──────────────────────────────────────────
-    function ensureAgentUI(agentId) {
-        if (document.getElementById(`tab-${agentId}`)) return;
-
-        if (emptyMsg) emptyMsg.style.display = "none";
-
-        // Tab button
-        const btn = document.createElement("button");
-        btn.className = "tab-btn";
-        btn.id = `tab-${agentId}`;
-        btn.textContent = agentId;
-        btn.addEventListener("click", () => setActive(agentId));
-        btn.title = `Click to view ${agentId} | Right-click for direct link`;
-        
-        // Add context menu for direct link
-        btn.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            window.open(`/agent/${agentId}`, '_blank');
-        });
-        
-        tabsEl.appendChild(btn);
-
-        // Panel
-        const panel = document.createElement("div");
-        panel.className = "agent-panel";
-        panel.id = `panel-${agentId}`;
-        panel.innerHTML = `
-            <div class="agent-body">
-                <div class="canvas-column">
-                    <div class="canvas-wrap">
-                        <h3>Map</h3>
-                        <canvas id="map-${agentId}" width="400" height="400"></canvas>
-                    </div>
-                    <div class="canvas-wrap">
-                        <h3>Heatmap</h3>
-                        <canvas id="heat-${agentId}" width="400" height="400"></canvas>
-                    </div>
-                </div>
-                <div class="stats" id="stats-${agentId}"></div>
-            </div>
-        `;
-        panelsHost.appendChild(panel);
-
-        if (activeAgentId === null) setActive(agentId);
-    }
-
-    function setActive(agentId) {
-        activeAgentId = agentId;
-        document.querySelectorAll(".tab-btn").forEach(b =>
-            b.classList.toggle("active", b.id === `tab-${agentId}`)
-        );
-        document.querySelectorAll(".agent-panel").forEach(p =>
-            p.classList.toggle("active", p.id === `panel-${agentId}`)
-        );
-        renderActivePanel();
-    }
-
-    function renderActivePanel() {
-        if (!activeAgentId) return;
-        const snapshot = agents[activeAgentId];
+    function render() {
         if (!snapshot) return;
-        const allAgents = Object.values(agents);
-        drawMap(document.getElementById(`map-${activeAgentId}`), snapshot, allAgents, true);
-        drawHeatmap(document.getElementById(`heat-${activeAgentId}`), snapshot);
-        renderStats(document.getElementById(`stats-${activeAgentId}`), snapshot);
-    }
-
-    function renderGlobal() {
-        const all = Object.values(agents);
-        if (all.length === 0) return;
-        // Use the first agent as the map reference; draw everyone as markers.
-        const ref = all[0];
-        drawMap(globalCanvas, { ...ref, currentPath: [], destination: null }, all, false);
+        agentTitle.textContent = `Agent: ${snapshot.name || snapshot.agentId || "Unknown"}`;
+        drawMap(mapCanvas, snapshot);
+        drawHeatmap(heatCanvas, snapshot);
+        renderStats(statsPanel, snapshot);
     }
 
     // ── SSE handling ────────────────────────────────────────────────────
-    function applySnapshot(agentId, snapshot) {
-        const isNew = !agents[agentId];
-        agents[agentId] = snapshot;
-        if (isNew) ensureAgentUI(agentId);
-        renderGlobal();
-        if (agentId === activeAgentId) renderActivePanel();
-    }
-
     function connect() {
-        const es = new EventSource("/events");
+        const es = new EventSource(`/events/${agentId}`);
         es.onmessage = (e) => {
             let msg;
             try { msg = JSON.parse(e.data); } catch { return; }
-            if (msg.type === "init" && msg.state) {
-                for (const [agentId, snapshot] of Object.entries(msg.state)) {
-                    applySnapshot(agentId, snapshot);
-                }
-            } else if (msg.type === "update") {
-                applySnapshot(msg.agentId, msg.snapshot);
+            if (msg.type === "init" && msg.snapshot) {
+                snapshot = msg.snapshot;
+                render();
+            } else if (msg.type === "update" && msg.snapshot) {
+                snapshot = msg.snapshot;
+                render();
             }
         };
         es.onerror = () => {
-            // EventSource auto-reconnects; nothing to do.
+            // EventSource auto-reconnects
         };
     }
 
