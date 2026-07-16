@@ -2,7 +2,7 @@ import { BDI_Agent } from './MultiAgentSystem/BDI_Agent/BDI_Agent.js';
 import {BT_Agent} from './sandbox/behaviour_tree.js';
 import {BenchmarkAgent} from "./benchmarks/aStar_performances.js";
 import {BDI_Agent_2} from "./sandbox/bdi.js";
-
+import './dashboard/DashboardServer.js';
 // const agent = new BDI_Agent();
 const agent = new BT_Agent();
 // const agent = new BenchmarkAgent();

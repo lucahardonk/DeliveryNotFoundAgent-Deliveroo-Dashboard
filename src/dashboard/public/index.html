@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deliveroo Dashboard</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>DELIVEROO DASHBOARD</h1>
+        <div class="live-indicator">● LIVE</div>
+        <div id="agent-tabs" class="tabs"></div>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h3>Global View</h3>
+            <canvas id="global-canvas"></canvas>
+        </div>
+
+        <div id="agents-container"></div>
+    </div>
+
+    <script>
+        const agents = {};
+        let activeAgent = null;
+
+        const eventSource = new EventSource('/events');
+
+        eventSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'init') {
+                for (const [agentId, snapshot] of Object.entries(data.state)) {
+                    applySnapshot(agentId, snapshot);
+                }
+            } else if (data.type === 'update') {
+                applySnapshot(data.agentId, data.snapshot);
+            }
+
+            renderGlobal();
+            if (activeAgent && agents[activeAgent]) {
+                renderAgent(activeAgent);
+            }
+        };
+
+        function applySnapshot(agentId, snapshot) {
+            agents[agentId] = snapshot;
+            ensureAgentUI(agentId);
+        }
+
+        function ensureAgentUI(agentId) {
+            if (document.getElementById(`tab-${agentId}`)) return;
+
+            const tabsContainer = document.getElementById('agent-tabs');
+            const tab = document.createElement('button');
+            tab.id = `tab-${agentId}`;
+            tab.className = 'tab';
+            tab.textContent = agents[agentId].name || agentId;
+            tab.onclick = () => setActive(agentId);
+            tabsContainer.appendChild(tab);
+
+            const agentsContainer = document.getElementById('agents-container');
+            const panel = document.createElement('div');
+            panel.id = `panel-${agentId}`;
+            panel.className = 'panel agent-panel';
+            panel.innerHTML = `
+                <h3>Agent: ${agents[agentId].name || agentId}</h3>
+                <div class="canvas-row">
+                    <div>
+                        <h4>Map</h4>
+                        <canvas id="map-${agentId}"></canvas>
+                    </div>
+                    <div>
+                        <h4>Heatmap (Parcel Sightings)</h4>
+                        <canvas id="heatmap-${agentId}"></canvas>
+                    </div>
+                </div>
+                <div id="stats-${agentId}" class="stats"></div>
+            `;
+            agentsContainer.appendChild(panel);
+
+            if (!activeAgent) setActive(agentId);
+        }
+
+        function setActive(agentId) {
+            activeAgent = agentId;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.agent-panel').forEach(p => p.style.display = 'none');
+            const tab = document.getElementById(`tab-${agentId}`);
+            const panel = document.getElementById(`panel-${agentId}`);
+            if (tab) tab.classList.add('active');
+            if (panel) panel.style.display = 'block';
+            renderAgent(agentId);
+        }
+
+        function renderGlobal() {
+            const canvas = document.getElementById('global-canvas');
+            if (!canvas) return;
+            const allSnapshots = Object.values(agents);
+            if (allSnapshots.length === 0) return;
+            drawMap(canvas, allSnapshots[0], allSnapshots, false);
+        }
+
+        function renderAgent(agentId) {
+            const snapshot = agents[agentId];
+            if (!snapshot) return;
+
+            const mapCanvas = document.getElementById(`map-${agentId}`);
+            const heatmapCanvas = document.getElementById(`heatmap-${agentId}`);
+            const statsDiv = document.getElementById(`stats-${agentId}`);
+
+            if (mapCanvas) drawMap(mapCanvas, snapshot, [snapshot], true);
+            if (heatmapCanvas) drawHeatmap(heatmapCanvas, snapshot);
+            if (statsDiv) renderStats(statsDiv, snapshot);
+        }
+
+        function drawMap(canvas, snapshot, allAgents, focusIsSelf) {
+            const map = snapshot.worldMap;
+            if (!map || !map.length) return;
+
+            const h = map.length;
+            const w = map[0].length;
+            canvas.width = w * 10;
+            canvas.height = h * 10;
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const tile = map[y][x];
+                    if (tile === '0') ctx.fillStyle = '#333';
+                    else if (tile === '1') ctx.fillStyle = '#0d1117';
+                    else if (tile === '2') ctx.fillStyle = '#1a4d2e';
+                    else ctx.fillStyle = '#555';
+                    ctx.fillRect(x * 10, y * 10, 10, 10);
+                }
+            }
+
+            if (snapshot.sensedParcels) {
+                ctx.fillStyle = '#ffd700';
+                for (const p of snapshot.sensedParcels) {
+                    ctx.fillRect(Math.floor(p.x) * 10 + 2, Math.floor(p.y) * 10 + 2, 6, 6);
+                }
+            }
+
+            if (snapshot.path && snapshot.path.length > 0 && focusIsSelf) {
+                ctx.strokeStyle = '#00ffff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(snapshot.x * 10 + 5, snapshot.y * 10 + 5);
+                for (const step of snapshot.path) {
+                    ctx.lineTo(step.x * 10 + 5, step.y * 10 + 5);
+                }
+                ctx.stroke();
+
+                const dest = snapshot.path[snapshot.path.length - 1];
+                ctx.strokeStyle = '#ff00ff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(dest.x * 10, dest.y * 10, 10, 10);
+            }
+
+            for (const agent of allAgents) {
+                const isSelf = focusIsSelf && agent.id === snapshot.id;
+                ctx.fillStyle = isSelf ? '#0080ff' : '#ff8800';
+                ctx.fillRect(agent.x * 10 + 1, agent.y * 10 + 1, 8, 8);
+            }
+        }
+
+        function drawHeatmap(canvas, snapshot) {
+            const heatmap = snapshot.heatmap;
+            if (!heatmap || !heatmap.length) return;
+
+            const h = heatmap.length;
+            const w = heatmap[0].length;
+            canvas.width = w * 10;
+            canvas.height = h * 10;
+
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let max = 1;
+            for (const row of heatmap) {
+                for (const val of row) {
+                    if (val > max) max = val;
+                }
+            }
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const val = heatmap[y][x];
+                    if (val > 0) {
+                        const intensity = Math.min(val / max, 1);
+                        ctx.fillStyle = `rgba(255, 0, 0, ${intensity * 0.6})`;
+                        ctx.fillRect(x * 10, y * 10, 10, 10);
+                    }
+                }
+            }
+        }
+
+        function renderStats(el, snapshot) {
+            const netScore = (snapshot.score || 0) + (snapshot.penalty || 0);
+            const state = inferState(snapshot);
+            
+            el.innerHTML = `
+                <div class="stat-row">
+                    <span class="stat-label">Agent:</span>
+                    <span class="stat-value">${snapshot.name} (${snapshot.id})</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Score:</span>
+                    <span class="stat-value score">${snapshot.score || 0}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Penalty:</span>
+                    <span class="stat-value penalty">${snapshot.penalty || 0}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Net:</span>
+                    <span class="stat-value">${netScore}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">State:</span>
+                    <span class="stat-value state-badge">${state}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Position:</span>
+                    <span class="stat-value">(${snapshot.x}, ${snapshot.y})</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Destination:</span>
+                    <span class="stat-value">${snapshot.destination ? `(${snapshot.destination.x}, ${snapshot.destination.y})` : 'None'}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Path Steps:</span>
+                    <span class="stat-value">${snapshot.path ? snapshot.path.length : 0}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Elapsed:</span>
+                    <span class="stat-value">${Math.floor((snapshot.elapsed || 0) / 1000)}s</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Carried Parcels:</span>
+                    <span class="stat-value parcel-list">${snapshot.carriedParcels && snapshot.carriedParcels.length > 0 ? snapshot.carriedParcels.map(p => `${p.id.slice(0,6)}(${p.reward})`).join(', ') : 'None'}</span>
+                </div>
+            `;
+        }
+
+        function inferState(snapshot) {
+            if (!snapshot.destination) return 'EXPLORING';
+            const destTile = snapshot.worldMap?.[snapshot.destination.y]?.[snapshot.destination.x];
+            if (destTile === '2') return 'DELIVERING';
+            return 'PICKING UP';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,900 @@
+From 70a88bf8da7f62197746f0f3bc8888277768bfa6 Mon Sep 17 00:00:00 2001
+From: lucahardonk <43220862+lucahardonk@users.noreply.github.com>
+Date: Thu, 16 Jul 2026 20:47:38 +0000
+Subject: [PATCH] feat(dashboard): add live agent GUI dashboard (agent_gui)
+
+---
+ package.json                     |   1 +
+ src/dashboard/DashboardBridge.js |  94 ++++++++
+ src/dashboard/DashboardServer.js |  61 +++++
+ src/dashboard/public/index.html  | 378 +++++++++++++++++++++++++++++++
+ src/dashboard/public/style.css   | 216 ++++++++++++++++++
+ src/main.js                      |   1 +
+ src/sandbox/behaviour_tree.js    |  45 ++++
+ 7 files changed, 796 insertions(+)
+ create mode 100644 src/dashboard/DashboardBridge.js
+ create mode 100644 src/dashboard/DashboardServer.js
+ create mode 100644 src/dashboard/public/index.html
+ create mode 100644 src/dashboard/public/style.css
+
+diff --git a/package.json b/package.json
+index 2b33ab7..7dd2528 100644
+--- a/package.json
++++ b/package.json
+@@ -17,6 +17,7 @@
+     "#MultiAgentSystem/*.js": "./src/MultiAgentSystem/*.js"
+   },
+   "devDependencies": {
++    "express": "^4.19.2"
+   },
+   "dependencies": {
+     "@unitn-asa/deliveroo-js-client": "latest",
+diff --git a/src/dashboard/DashboardBridge.js b/src/dashboard/DashboardBridge.js
+new file mode 100644
+index 0000000..5965592
+--- /dev/null
++++ b/src/dashboard/DashboardBridge.js
+@@ -0,0 +1,94 @@
++import { EventEmitter } from 'node:events';
++
++/**
++ * Singleton bridge between the running agents and the dashboard server.
++ *
++ * Agents call {@link DashboardBridge#registerAgent} once and then push
++ * serializable snapshots via {@link DashboardBridge#update}. The bridge keeps
++ * the latest snapshot per agent (plus a cumulative parcel-sighting heatmap) and
++ * emits an `"update"` event that the SSE endpoint forwards to the browser.
++ *
++ * The singleton pattern relies on the Node.js ES module cache: every
++ * `import { bridge } from './DashboardBridge.js'` returns the exact same
++ * instance, so no IPC or global state is required.
++ */
++class DashboardBridge extends EventEmitter {
++    /** @type {Map<string, object>} agentId -> latest snapshot */
++    #states = new Map();
++
++    /**
++     * Registers an agent and initializes its per-agent state, including a
++     * zeroed heatmap matrix sized to the world map (width x height).
++     * @param {string} agentId
++     * @param {{width:number,height:number,tiles:any[][]}} worldMap
++     */
++    registerAgent(agentId, worldMap) {
++        const width = worldMap?.width ?? 0;
++        const height = worldMap?.height ?? 0;
++        const heatmap = Array.from({ length: width }, () =>
++            new Array(height).fill(0)
++        );
++        this.#states.set(agentId, {
++            agentId,
++            worldMap,
++            heatmap,
++            sensedParcels: [],
++            sensedAgents: [],
++            currentPath: [],
++        });
++    }
++
++    /**
++     * Stores the latest snapshot for an agent, updates the cumulative parcel
++     * sighting heatmap (with a small decay so old data fades), and emits an
++     * `"update"` event.
++     * @param {string} agentId
++     * @param {object} snapshot
++     */
++    update(agentId, snapshot) {
++        const previous = this.#states.get(agentId);
++        const width = snapshot?.worldMap?.width ?? previous?.worldMap?.width ?? 0;
++        const height = snapshot?.worldMap?.height ?? previous?.worldMap?.height ?? 0;
++
++        // Carry over the existing heatmap, or start a fresh one.
++        let heatmap = previous?.heatmap;
++        if (!heatmap || heatmap.length !== width) {
++            heatmap = Array.from({ length: width }, () =>
++                new Array(height).fill(0)
++            );
++        }
++
++        // Apply a small decay factor so stale sightings fade over time.
++        const DECAY = 0.995;
++        for (let x = 0; x < heatmap.length; x++) {
++            const col = heatmap[x];
++            for (let y = 0; y < col.length; y++) {
++                col[y] *= DECAY;
++            }
++        }
++
++        // Increment each currently sensed parcel tile's counter.
++        const parcels = snapshot?.sensedParcels ?? [];
++        for (const parcel of parcels) {
++            if (heatmap[parcel.x]?.[parcel.y] !== undefined) {
++                heatmap[parcel.x][parcel.y] += 1;
++            }
++        }
++
++        // Store the snapshot with the maintained heatmap attached.
++        const merged = { ...snapshot, agentId, heatmap };
++        this.#states.set(agentId, merged);
++
++        this.emit('update', { agentId, snapshot: merged });
++    }
++
++    /**
++     * Returns the full map of agentId -> latest snapshot.
++     * @returns {Map<string, object>}
++     */
++    getState() {
++        return this.#states;
++    }
++}
++
++export const bridge = new DashboardBridge();
+diff --git a/src/dashboard/DashboardServer.js b/src/dashboard/DashboardServer.js
+new file mode 100644
+index 0000000..8cbe2a0
+--- /dev/null
++++ b/src/dashboard/DashboardServer.js
+@@ -0,0 +1,61 @@
++import express from 'express';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++import { bridge } from './DashboardBridge.js';
++
++const __filename = fileURLToPath(import.meta.url);
++const __dirname = path.dirname(__filename);
++const PUBLIC_DIR = path.join(__dirname, 'public');
++
++const PORT = 3001;
++
++/** Serializes the bridge state Map into a plain object for JSON transport. */
++function serializeState() {
++    const obj = {};
++    for (const [agentId, snapshot] of bridge.getState()) {
++        obj[agentId] = snapshot;
++    }
++    return obj;
++}
++
++const app = express();
++
++app.get('/', (_req, res) => {
++    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
++});
++
++app.get('/style.css', (_req, res) => {
++    res.sendFile(path.join(PUBLIC_DIR, 'style.css'));
++});
++
++app.get('/api/state', (_req, res) => {
++    res.json(serializeState());
++});
++
++app.get('/events', (req, res) => {
++    res.writeHead(200, {
++        'Content-Type': 'text/event-stream',
++        'Cache-Control': 'no-cache',
++        'Connection': 'keep-alive',
++    });
++
++    // Send a full state dump as the first event.
++    res.write(`data: ${JSON.stringify({ type: 'init', state: serializeState() })}\n\n`);
++
++    // Forward every subsequent bridge update to this client.
++    const listener = ({ agentId, snapshot }) => {
++        res.write(`data: ${JSON.stringify({ type: 'update', agentId, snapshot })}\n\n`);
++    };
++    bridge.on('update', listener);
++
++    // Clean up the listener when the client disconnects.
++    req.on('close', () => {
++        bridge.off('update', listener);
++    });
++});
++
++app.listen(PORT, () => {
++    console.log(`📊 Dashboard server running at http://localhost:${PORT}`);
++});
++
++export default app;
+diff --git a/src/dashboard/public/index.html b/src/dashboard/public/index.html
+new file mode 100644
+index 0000000..89675b8
+--- /dev/null
++++ b/src/dashboard/public/index.html
+@@ -0,0 +1,378 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++    <meta charset="UTF-8">
++    <meta name="viewport" content="width=device-width, initial-scale=1.0">
++    <title>Deliveroo Dashboard</title>
++    <link rel="stylesheet" href="/style.css">
++</head>
++<body>
++    <header>
++        <h1>🗺 DELIVEROO DASHBOARD</h1>
++        <span class="live-indicator"><span class="live-dot"></span> LIVE</span>
++        <div class="tabs" id="tabs"></div>
++    </header>
++
++    <div class="container">
++        <!-- Global view: all agents on the shared map -->
++        <div class="panel global-view">
++            <h2>Global View</h2>
++            <div class="canvas-wrap">
++                <canvas id="globalCanvas" width="400" height="400"></canvas>
++            </div>
++        </div>
++
++        <!-- Per-agent panels (created dynamically) -->
++        <div class="panel agent-panels" id="agentPanels">
++            <h2>Per-Agent Panel</h2>
++            <div id="panelsHost">
++                <div class="empty" id="emptyMsg">Waiting for agents…</div>
++            </div>
++        </div>
++    </div>
++
++<script>
++(() => {
++    "use strict";
++
++    // ── Config ──────────────────────────────────────────────────────────
++    const MAX_CANVAS = 400;
++    const COLORS = {
++        wall: "#111111",
++        floor: "#1a2332",
++        delivery: "#22543d",
++        self: "#58a6ff",
++        other: "#f6a623",
++        freeParcel: "#ffd700",
++        carried: "#3fb950",
++        path: "#00ffff",
++        destination: "#ff00ff",
++    };
++
++    // ── State ───────────────────────────────────────────────────────────
++    /** @type {Object<string, object>} agentId -> latest snapshot */
++    const agents = {};
++    let activeAgentId = null;
++
++    const tabsEl = document.getElementById("tabs");
++    const panelsHost = document.getElementById("panelsHost");
++    const emptyMsg = document.getElementById("emptyMsg");
++    const globalCanvas = document.getElementById("globalCanvas");
++
++    // ── Helpers ─────────────────────────────────────────────────────────
++    function formatTime(ms) {
++        const totalSec = Math.floor((ms || 0) / 1000);
++        const m = String(Math.floor(totalSec / 60)).padStart(2, "0");
++        const s = String(totalSec % 60).padStart(2, "0");
++        return `${m}:${s}`;
++    }
++
++    function tileColor(v) {
++        if (v === "1") return COLORS.floor;
++        if (v === "2") return COLORS.delivery;
++        return COLORS.wall; // "0", null, undefined
++    }
++
++    /** Computes cell size (in px) so the map fits within MAX_CANVAS. */
++    function computeCell(worldMap) {
++        const w = worldMap?.width || 1;
++        const h = worldMap?.height || 1;
++        return Math.max(2, Math.floor(MAX_CANVAS / Math.max(w, h)));
++    }
++
++    /**
++     * Infers a human-readable agent state from its destination tile type.
++     * @returns {string}
++     */
++    function inferState(snapshot) {
++        const dest = snapshot.destination;
++        if (!dest) return "EXPLORING";
++        const tiles = snapshot.worldMap?.tiles;
++        const type = tiles?.[dest.x]?.[dest.y];
++        if (type === "2") return "DELIVERING";
++        const onParcel = (snapshot.sensedParcels || []).some(
++            p => p.x === dest.x && p.y === dest.y
++        );
++        if (onParcel) return "PICKING UP";
++        return "EXPLORING";
++    }
++
++    // ── Canvas drawing ──────────────────────────────────────────────────
++    /**
++     * Shared map draw function used for both the global and per-agent maps.
++     * @param {HTMLCanvasElement} canvas
++     * @param {object} snapshot     the "focus" agent snapshot (for path/dest)
++     * @param {object[]} allAgents  every known agent snapshot (drawn as markers)
++     * @param {boolean} focusIsSelf whether snapshot's own marker is "self"
++     */
++    function drawMap(canvas, snapshot, allAgents, focusIsSelf) {
++        const worldMap = snapshot.worldMap;
++        if (!worldMap || !worldMap.tiles) return;
++
++        const cell = computeCell(worldMap);
++        const w = worldMap.width;
++        const h = worldMap.height;
++        canvas.width = w * cell;
++        canvas.height = h * cell;
++
++        const ctx = canvas.getContext("2d");
++        ctx.clearRect(0, 0, canvas.width, canvas.height);
++
++        // Map Y so that y=0 is at the bottom (matches Deliveroo coords).
++        const py = (y) => (h - 1 - y) * cell;
++
++        // Tiles
++        for (let x = 0; x < w; x++) {
++            for (let y = 0; y < h; y++) {
++                ctx.fillStyle = tileColor(worldMap.tiles[x]?.[y]);
++                ctx.fillRect(x * cell, py(y), cell, cell);
++            }
++        }
++
++        // Planned path (from focus agent)
++        const path = snapshot.currentPath || [];
++        if (path.length > 0) {
++            ctx.save();
++            ctx.globalAlpha = 0.7;
++            ctx.strokeStyle = COLORS.path;
++            ctx.lineWidth = 2;
++            ctx.beginPath();
++            for (const step of path) {
++                if (!step.from || !step.to) continue;
++                ctx.moveTo(step.from.x * cell + cell / 2, py(step.from.y) + cell / 2);
++                ctx.lineTo(step.to.x * cell + cell / 2, py(step.to.y) + cell / 2);
++            }
++            ctx.stroke();
++            ctx.restore();
++        }
++
++        // Destination tile (magenta border)
++        if (snapshot.destination) {
++            const d = snapshot.destination;
++            ctx.save();
++            ctx.strokeStyle = COLORS.destination;
++            ctx.lineWidth = 2;
++            ctx.strokeRect(d.x * cell + 1, py(d.y) + 1, cell - 2, cell - 2);
++            ctx.restore();
++        }
++
++        // Free parcels (yellow squares)
++        const parcels = snapshot.sensedParcels || [];
++        for (const p of parcels) {
++            if (p.carriedBy != null) continue;
++            ctx.fillStyle = COLORS.freeParcel;
++            const s = Math.max(3, cell * 0.4);
++            ctx.fillRect(
++                p.x * cell + (cell - s) / 2,
++                py(p.y) + (cell - s) / 2,
++                s, s
++            );
++        }
++
++        // Agents
++        const r = Math.max(3, cell * 0.4);
++        for (const a of allAgents) {
++            if (a.x == null || a.y == null) continue;
++            const cx = a.x * cell + cell / 2;
++            const cy = py(a.y) + cell / 2;
++            const isFocus = a.agentId === snapshot.agentId;
++            ctx.fillStyle = (isFocus && focusIsSelf) ? COLORS.self : COLORS.other;
++            ctx.beginPath();
++            ctx.arc(cx, cy, r, 0, Math.PI * 2);
++            ctx.fill();
++
++            // Carried parcel indicator (small green dot on the agent)
++            const carried = (a.sensedParcels || []).filter(
++                p => p.carriedBy === a.agentId
++            );
++            if (carried.length > 0) {
++                ctx.fillStyle = COLORS.carried;
++                ctx.beginPath();
++                ctx.arc(cx, cy, Math.max(1.5, r * 0.35), 0, Math.PI * 2);
++                ctx.fill();
++            }
++
++            // Name label
++            if (a.name && cell >= 8) {
++                ctx.fillStyle = "#c9d1d9";
++                ctx.font = `${Math.max(8, cell * 0.5)}px monospace`;
++                ctx.fillText(a.name, cx + r + 1, cy - r);
++            }
++        }
++    }
++
++    /** Draws the cumulative parcel-sighting heatmap. */
++    function drawHeatmap(canvas, snapshot) {
++        const worldMap = snapshot.worldMap;
++        const heatmap = snapshot.heatmap;
++        if (!worldMap || !heatmap) return;
++
++        const cell = computeCell(worldMap);
++        const w = worldMap.width;
++        const h = worldMap.height;
++        canvas.width = w * cell;
++        canvas.height = h * cell;
++
++        const ctx = canvas.getContext("2d");
++        ctx.clearRect(0, 0, canvas.width, canvas.height);
++
++        const py = (y) => (h - 1 - y) * cell;
++
++        // Base map (dim)
++        for (let x = 0; x < w; x++) {
++            for (let y = 0; y < h; y++) {
++                ctx.fillStyle = tileColor(worldMap.tiles?.[x]?.[y]);
++                ctx.fillRect(x * cell, py(y), cell, cell);
++            }
++        }
++
++        // Max count for normalization
++        let maxCount = 0;
++        for (let x = 0; x < heatmap.length; x++) {
++            for (let y = 0; y < heatmap[x].length; y++) {
++                if (heatmap[x][y] > maxCount) maxCount = heatmap[x][y];
++            }
++        }
++        if (maxCount <= 0) return;
++
++        // Semi-transparent red overlay
++        for (let x = 0; x < heatmap.length; x++) {
++            for (let y = 0; y < heatmap[x].length; y++) {
++                const count = heatmap[x][y];
++                if (count <= 0) continue;
++                const alpha = Math.min(count / maxCount, 1) * 0.8;
++                ctx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
++                ctx.fillRect(x * cell, py(y), cell, cell);
++            }
++        }
++    }
++
++    // ── Stats rendering ─────────────────────────────────────────────────
++    function renderStats(el, snapshot) {
++        const carried = (snapshot.sensedParcels || []).filter(
++            p => p.carriedBy === snapshot.agentId
++        );
++        const score = snapshot.score ?? 0;
++        const penalty = snapshot.penalty ?? 0;
++        const dest = snapshot.destination
++            ? `(${snapshot.destination.x}, ${snapshot.destination.y})`
++            : "—";
++        const state = inferState(snapshot);
++
++        el.innerHTML = `
++            <div class="row"><span class="key">Agent</span><span class="value">${snapshot.name ?? "?"}</span></div>
++            <div class="row"><span class="key">ID</span><span class="value">${snapshot.agentId ?? "?"}</span></div>
++            <div class="row"><span class="key">Score</span><span class="value score">${score}</span></div>
++            <div class="row"><span class="key">Penalty</span><span class="value penalty">${penalty}</span></div>
++            <div class="row"><span class="key">Net</span><span class="value">${score + penalty}</span></div>
++            <div class="row"><span class="key">State</span><span class="value"><span class="state-badge">${state}</span></span></div>
++            <div class="row"><span class="key">Position</span><span class="value">(${snapshot.x}, ${snapshot.y})</span></div>
++            <div class="row"><span class="key">Destination</span><span class="value">${dest}</span></div>
++            <div class="row"><span class="key">Path steps left</span><span class="value">${(snapshot.currentPath || []).length}</span></div>
++            <div class="row"><span class="key">Elapsed</span><span class="value">${formatTime(snapshot.elapsedTime)}</span></div>
++            <div class="row"><span class="key">Carried</span><span class="value">${carried.length}</span></div>
++            <ul class="parcel-list">
++                ${carried.map(p => `<li>#${p.id} — reward ${p.reward ?? "?"}</li>`).join("") || "<li>none</li>"}
++            </ul>
++        `;
++    }
++
++    // ── Tab / panel management ──────────────────────────────────────────
++    function ensureAgentUI(agentId) {
++        if (document.getElementById(`tab-${agentId}`)) return;
++
++        if (emptyMsg) emptyMsg.style.display = "none";
++
++        // Tab button
++        const btn = document.createElement("button");
++        btn.className = "tab-btn";
++        btn.id = `tab-${agentId}`;
++        btn.textContent = agentId;
++        btn.addEventListener("click", () => setActive(agentId));
++        tabsEl.appendChild(btn);
++
++        // Panel
++        const panel = document.createElement("div");
++        panel.className = "agent-panel";
++        panel.id = `panel-${agentId}`;
++        panel.innerHTML = `
++            <div class="agent-body">
++                <div class="canvas-column">
++                    <div class="canvas-wrap">
++                        <h3>Map</h3>
++                        <canvas id="map-${agentId}" width="400" height="400"></canvas>
++                    </div>
++                    <div class="canvas-wrap">
++                        <h3>Heatmap</h3>
++                        <canvas id="heat-${agentId}" width="400" height="400"></canvas>
++                    </div>
++                </div>
++                <div class="stats" id="stats-${agentId}"></div>
++            </div>
++        `;
++        panelsHost.appendChild(panel);
++
++        if (activeAgentId === null) setActive(agentId);
++    }
++
++    function setActive(agentId) {
++        activeAgentId = agentId;
++        document.querySelectorAll(".tab-btn").forEach(b =>
++            b.classList.toggle("active", b.id === `tab-${agentId}`)
++        );
++        document.querySelectorAll(".agent-panel").forEach(p =>
++            p.classList.toggle("active", p.id === `panel-${agentId}`)
++        );
++        renderActivePanel();
++    }
++
++    function renderActivePanel() {
++        if (!activeAgentId) return;
++        const snapshot = agents[activeAgentId];
++        if (!snapshot) return;
++        const allAgents = Object.values(agents);
++        drawMap(document.getElementById(`map-${activeAgentId}`), snapshot, allAgents, true);
++        drawHeatmap(document.getElementById(`heat-${activeAgentId}`), snapshot);
++        renderStats(document.getElementById(`stats-${activeAgentId}`), snapshot);
++    }
++
++    function renderGlobal() {
++        const all = Object.values(agents);
++        if (all.length === 0) return;
++        // Use the first agent as the map reference; draw everyone as markers.
++        const ref = all[0];
++        drawMap(globalCanvas, { ...ref, currentPath: [], destination: null }, all, false);
++    }
++
++    // ── SSE handling ────────────────────────────────────────────────────
++    function applySnapshot(agentId, snapshot) {
++        const isNew = !agents[agentId];
++        agents[agentId] = snapshot;
++        if (isNew) ensureAgentUI(agentId);
++        renderGlobal();
++        if (agentId === activeAgentId) renderActivePanel();
++    }
++
++    function connect() {
++        const es = new EventSource("/events");
++        es.onmessage = (e) => {
++            let msg;
++            try { msg = JSON.parse(e.data); } catch { return; }
++            if (msg.type === "init" && msg.state) {
++                for (const [agentId, snapshot] of Object.entries(msg.state)) {
++                    applySnapshot(agentId, snapshot);
++                }
++            } else if (msg.type === "update") {
++                applySnapshot(msg.agentId, msg.snapshot);
++            }
++        };
++        es.onerror = () => {
++            // EventSource auto-reconnects; nothing to do.
++        };
++    }
++
++    connect();
++})();
++</script>
++</body>
++</html>
+diff --git a/src/dashboard/public/style.css b/src/dashboard/public/style.css
+new file mode 100644
+index 0000000..4a79073
+--- /dev/null
++++ b/src/dashboard/public/style.css
+@@ -0,0 +1,216 @@
++* {
++    box-sizing: border-box;
++}
++
++body {
++    background: #0d1117;
++    color: #c9d1d9;
++    font-family: "SF Mono", "Consolas", "Menlo", monospace;
++    margin: 0;
++    padding: 0;
++}
++
++/* ── Header ─────────────────────────────────────────────────────────── */
++header {
++    display: flex;
++    align-items: center;
++    gap: 16px;
++    padding: 12px 20px;
++    border-bottom: 1px solid #30363d;
++    background: #161b22;
++    flex-wrap: wrap;
++}
++
++header h1 {
++    font-size: 18px;
++    margin: 0;
++    color: #c9d1d9;
++    letter-spacing: 1px;
++}
++
++.live-indicator {
++    display: inline-flex;
++    align-items: center;
++    gap: 6px;
++    font-size: 12px;
++    color: #3fb950;
++    font-weight: bold;
++}
++
++.live-dot {
++    width: 10px;
++    height: 10px;
++    border-radius: 50%;
++    background: #3fb950;
++    animation: blink 1.2s infinite;
++}
++
++@keyframes blink {
++    0%, 100% { opacity: 1; }
++    50%       { opacity: 0.2; }
++}
++
++/* ── Tabs ───────────────────────────────────────────────────────────── */
++.tabs {
++    display: flex;
++    gap: 6px;
++    margin-left: auto;
++    flex-wrap: wrap;
++}
++
++.tab-btn {
++    background: #21262d;
++    color: #c9d1d9;
++    border: 1px solid #30363d;
++    border-radius: 6px;
++    padding: 6px 12px;
++    cursor: pointer;
++    font-family: inherit;
++    font-size: 12px;
++}
++
++.tab-btn:hover {
++    border-color: #58a6ff;
++}
++
++.tab-btn.active {
++    background: #58a6ff;
++    color: #0d1117;
++    border-color: #58a6ff;
++    font-weight: bold;
++}
++
++/* ── Layout ─────────────────────────────────────────────────────────── */
++.container {
++    display: flex;
++    gap: 16px;
++    padding: 16px;
++    align-items: flex-start;
++    flex-wrap: wrap;
++}
++
++.panel {
++    background: #161b22;
++    border: 1px solid #30363d;
++    border-radius: 8px;
++    padding: 12px;
++}
++
++.panel h2 {
++    font-size: 13px;
++    margin: 0 0 10px 0;
++    color: #58a6ff;
++    text-transform: uppercase;
++    letter-spacing: 1px;
++}
++
++.global-view {
++    flex: 0 0 auto;
++}
++
++.agent-panels {
++    flex: 1 1 420px;
++    min-width: 320px;
++}
++
++.agent-panel {
++    display: none;
++}
++
++.agent-panel.active {
++    display: block;
++}
++
++.agent-body {
++    display: flex;
++    gap: 16px;
++    flex-wrap: wrap;
++}
++
++.canvas-column {
++    display: flex;
++    flex-direction: column;
++    gap: 12px;
++}
++
++.canvas-wrap h3 {
++    font-size: 11px;
++    margin: 0 0 4px 0;
++    color: #8b949e;
++    text-transform: uppercase;
++}
++
++canvas {
++    border: 1px solid #30363d;
++    background: #0d1117;
++    display: block;
++    max-width: 400px;
++    width: 100%;
++    height: auto;
++    image-rendering: pixelated;
++}
++
++/* ── Stats ──────────────────────────────────────────────────────────── */
++.stats {
++    flex: 1 1 200px;
++    min-width: 200px;
++    font-size: 13px;
++    line-height: 1.8;
++}
++
++.stats .row {
++    display: flex;
++    justify-content: space-between;
++    gap: 12px;
++    border-bottom: 1px solid #21262d;
++    padding: 2px 0;
++}
++
++.stats .key {
++    color: #58a6ff;
++}
++
++.stats .value {
++    color: #c9d1d9;
++    text-align: right;
++    word-break: break-word;
++}
++
++.stats .score {
++    font-size: 26px;
++    font-weight: bold;
++    color: #3fb950;
++}
++
++.stats .penalty {
++    color: #f85149;
++}
++
++.stats .state-badge {
++    display: inline-block;
++    padding: 2px 8px;
++    border-radius: 10px;
++    font-size: 11px;
++    font-weight: bold;
++    background: #21262d;
++    color: #58a6ff;
++}
++
++.parcel-list {
++    list-style: none;
++    margin: 4px 0 0 0;
++    padding: 0;
++    font-size: 11px;
++    color: #8b949e;
++}
++
++.parcel-list li {
++    border-bottom: 1px dotted #21262d;
++    padding: 1px 0;
++}
++
++.empty {
++    color: #8b949e;
++    font-style: italic;
++    padding: 20px;
++}
+diff --git a/src/main.js b/src/main.js
+index 780594c..14929fd 100644
+--- a/src/main.js
++++ b/src/main.js
+@@ -1,3 +1,4 @@
++import './dashboard/DashboardServer.js';
+ import { BDI_Agent } from './MultiAgentSystem/BDI_Agent/BDI_Agent.js';
+ import {BT_Agent} from './sandbox/behaviour_tree.js';
+ import {BenchmarkAgent} from "./benchmarks/aStar_performances.js";
+diff --git a/src/sandbox/behaviour_tree.js b/src/sandbox/behaviour_tree.js
+index 112dd03..f2591eb 100644
+--- a/src/sandbox/behaviour_tree.js
++++ b/src/sandbox/behaviour_tree.js
+@@ -3,6 +3,7 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
+ import {PathFinder} from "#MultiAgentSystem/BDI_Agent/capabilities/Navigation/PathFinder.js";
+ import {MapAnalysis} from "#MultiAgentSystem/BDI_Agent/capabilities/Analysis/MapAnalysis.js";
+ import {TILE_TYPES} from "#types/world.js";
++import { bridge } from '../dashboard/DashboardBridge.js';
+ 
+ /**
+  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
+@@ -58,6 +59,9 @@ export class BT_Agent {
+     /** @type {number} */
+     #elapsedTime = 0;
+ 
++    /** @type {number[][]} — cumulative parcel sighting heatmap */
++    #heatmap = [];
++
+ 
+ 
+     // ── Intention execution ───────────────────────────────────────────────────
+@@ -88,6 +92,12 @@ export class BT_Agent {
+ 
+         console.log("Initial beliefs acquired");
+ 
++        // Initialize heatmap and register with dashboard bridge
++        this.#heatmap = Array.from({ length: this.#worldMap.width }, () =>
++            new Array(this.#worldMap.height).fill(0)
++        );
++        bridge.registerAgent(this.#me.id, this.#worldMap);
++
+         // Derived belief — computed once from the static map
+         this.#sccMap = this.#mapAnalysis.stronglyConnectedComponents(this.#worldMap);
+         console.log("Strongly Connected Components");
+@@ -105,6 +115,15 @@ export class BT_Agent {
+             this.#sensedParcels = sensing.parcels;
+             this.#sensedAgents = sensing.agents;
+             this.#sensedAgents.forEach(agent => {agent.x = Math.round(agent.x); agent.y = Math.round(agent.y)});
++
++            // Update heatmap with current parcel positions
++            for (const parcel of sensing.parcels) {
++                if (this.#heatmap[parcel.x]?.[parcel.y] !== undefined) {
++                    this.#heatmap[parcel.x][parcel.y]++;
++                }
++            }
++            // Push snapshot to dashboard bridge
++            bridge.update(this.#me.id, this.#buildSnapshot());
+         });
+ 
+         this.#socket.on("info", (info) => {
+@@ -209,6 +228,32 @@ export class BT_Agent {
+     }
+ 
+     // ── Utils ─────────────────────────────────────────────────────────────────
++
++    /** Builds a serializable snapshot of the agent's current state for the dashboard. */
++    #buildSnapshot() {
++        const dest = this.#agentMovingActions.length > 0
++            ? this.#agentMovingActions.at(-1).to
++            : null;
++        return {
++            agentId: this.#me.id,
++            name: this.#me.name,
++            x: this.#me.x,
++            y: this.#me.y,
++            score: this.#me.score,
++            penalty: this.#me.penalty,
++            worldMap: this.#worldMap,
++            sccMap: this.#sccMap,
++            deliveryTiles: this.#deliveryTiles,
++            parcelSpawnerTiles: this.#parcelSpawnerTiles,
++            sensedParcels: [...this.#sensedParcels],
++            sensedAgents: [...this.#sensedAgents],
++            currentPath: [...this.#agentMovingActions],
++            destination: dest,
++            heatmap: this.#heatmap,
++            elapsedTime: this.#elapsedTime,
++        };
++    }
++
+     async #resilientMove(direction, maxAttempts = 3) {
+         const move = (direction) => new Promise((resolve) => this.#socket.emit("move", direction, resolve));
+ 
+-- 
+2.39.5
+

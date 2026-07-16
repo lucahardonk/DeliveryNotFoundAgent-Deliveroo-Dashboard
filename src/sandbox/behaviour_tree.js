@@ -94,7 +94,7 @@ export class BT_Agent {
         console.table(this.#sccMap);
 
         // Sensing is a continuous listener, not a one-shot init Promise
-        this.#socket.onSensing((sensing) => {
+        this.#socket.on("sensing", (sensing) => {
             // TODO: trigger intention reconsideration if the current planned path is affected
             console.log("Sensing update:", sensing);
 
