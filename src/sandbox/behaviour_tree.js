@@ -3,6 +3,7 @@ import { DjsConnect } from "@unitn-asa/deliveroo-js-sdk/client";
 import {PathFinder} from "#MultiAgentSystem/BDI_Agent/capabilities/Navigation/PathFinder.js";
 import {MapAnalysis} from "#MultiAgentSystem/BDI_Agent/capabilities/Analysis/MapAnalysis.js";
 import {TILE_TYPES} from "#types/world.js";
+import { bridge } from '../dashboard/DashboardBridge.js';
 
 /**
  * @typedef {import("#@unitn-asa/deliveroo-js-sdk/src/types/IOGameOptions.js").IOGameOptions} IOGameOptions
@@ -58,6 +59,9 @@ export class BT_Agent {
     /** @type {number} */
     #elapsedTime = 0;
 
+    /** @type {number[][]} — cumulative parcel sighting heatmap */
+    #heatmap = [];
+
 
 
     // ── Intention execution ───────────────────────────────────────────────────
@@ -88,6 +92,12 @@ export class BT_Agent {
 
         console.log("Initial beliefs acquired");
 
+        // Initialize heatmap and register with dashboard bridge
+        this.#heatmap = Array.from({ length: this.#worldMap.width }, () =>
+            new Array(this.#worldMap.height).fill(0)
+        );
+        bridge.registerAgent(this.#me.id, this.#worldMap);
+
         // Derived belief — computed once from the static map
         this.#sccMap = this.#mapAnalysis.stronglyConnectedComponents(this.#worldMap);
         console.log("Strongly Connected Components");
@@ -105,6 +115,15 @@ export class BT_Agent {
             this.#sensedParcels = sensing.parcels;
             this.#sensedAgents = sensing.agents;
             this.#sensedAgents.forEach(agent => {agent.x = Math.round(agent.x); agent.y = Math.round(agent.y)});
+
+            // Update heatmap with current parcel positions
+            for (const parcel of sensing.parcels) {
+                if (this.#heatmap[parcel.x]?.[parcel.y] !== undefined) {
+                    this.#heatmap[parcel.x][parcel.y]++;
+                }
+            }
+            // Push snapshot to dashboard bridge
+            bridge.update(this.#me.id, this.#buildSnapshot());
         });
 
         this.#socket.on("info", (info) => {
@@ -209,6 +228,32 @@ export class BT_Agent {
     }
 
     // ── Utils ─────────────────────────────────────────────────────────────────
+
+    /** Builds a serializable snapshot of the agent's current state for the dashboard. */
+    #buildSnapshot() {
+        const dest = this.#agentMovingActions.length > 0
+            ? this.#agentMovingActions.at(-1).to
+            : null;
+        return {
+            agentId: this.#me.id,
+            name: this.#me.name,
+            x: this.#me.x,
+            y: this.#me.y,
+            score: this.#me.score,
+            penalty: this.#me.penalty,
+            worldMap: this.#worldMap,
+            sccMap: this.#sccMap,
+            deliveryTiles: this.#deliveryTiles,
+            parcelSpawnerTiles: this.#parcelSpawnerTiles,
+            sensedParcels: [...this.#sensedParcels],
+            sensedAgents: [...this.#sensedAgents],
+            currentPath: [...this.#agentMovingActions],
+            destination: dest,
+            heatmap: this.#heatmap,
+            elapsedTime: this.#elapsedTime,
+        };
+    }
+
     async #resilientMove(direction, maxAttempts = 3) {
         const move = (direction) => new Promise((resolve) => this.#socket.emit("move", direction, resolve));
 
