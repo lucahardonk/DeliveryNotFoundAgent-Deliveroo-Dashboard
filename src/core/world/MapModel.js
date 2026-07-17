@@ -64,7 +64,6 @@ export function getNeighbors(map, tile, sensedAgents = null, crateSpawningFriend
  * @returns {boolean} true when no sensed agent occupies (x, y).
  */
 function freeTile(x, y, sensing) {
-    console.log(`freeTile (${x}, ${y}, ${sensing})`);
     return !sensing.some(agent => agent.x === x && agent.y === y);
 }
 

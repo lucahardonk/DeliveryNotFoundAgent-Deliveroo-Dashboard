@@ -64,7 +64,6 @@ export class BtBlackboard {
     hasNavigationPath(predicate) {
         if (this.actions.length > 0) {
             const destinationTile = this.actions.at(-1).to;
-            console.log('Destination tile of current navigation path: ', destinationTile);
             return predicate(destinationTile);
         }
         return false;

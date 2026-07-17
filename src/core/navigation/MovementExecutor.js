@@ -22,7 +22,7 @@ export class MovementExecutor {
      */
     async resilientMove(direction, maxAttempts = 3) {
         for (let i = 0; i < maxAttempts; ++i) {
-            console.log(`Moving ${direction} (attempt ${i + 1}/${maxAttempts})...`);
+            // console.log(`Moving ${direction} (attempt ${i + 1}/${maxAttempts})...`);
             const result = await this.client.move(direction);
             if (result) return result;
 

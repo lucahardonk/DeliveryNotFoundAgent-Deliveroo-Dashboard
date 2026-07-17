@@ -41,8 +41,8 @@ export async function randomlyExploreMap(bb) {
             randomSpawnerTile,
             bb.ctx.perception.sensedAgents
         );
-        console.log('Random exploration path planned:');
-        console.dir(navigationPath, { depth: null });
+        // console.log('Random exploration path planned:');
+        // console.dir(navigationPath, { depth: null });
         bb.loadIntentionActions(navigationPath);
     }
 }

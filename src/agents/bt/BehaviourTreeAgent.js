@@ -43,7 +43,6 @@ export class BehaviourTreeAgent extends BaseAgent {
         const { tick } = this.tree;
 
         const executionLoop = async () => {
-            console.log('Execution Loop...');
             while (true) {
                 await tick(this.blackboard);
             }
