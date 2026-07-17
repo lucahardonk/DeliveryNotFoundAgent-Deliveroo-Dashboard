@@ -22,18 +22,16 @@ export class BaseAgent {
      * @param {object|null} [options.dashboardClient] - dashboard push client, or null.
      * @param {boolean} [options.trackHeatmap=false] - maintain the parcel heatmap.
      * @param {boolean} [options.publishToDashboard=false] - push snapshots on each sensing.
-     * @param {boolean} [options.waitForInfo=false] - also await the first `info` tick during init.
      * @param {string} [options.token] - auth token for this agent; defaults to `process.env.TOKEN`.
      * @param {string} [options.host] - server URL; defaults to `process.env.HOST`.
      */
-    constructor({ dashboardClient = null, trackHeatmap = false, publishToDashboard = false, waitForInfo = false, token, host } = {}) {
+    constructor({ dashboardClient = null, trackHeatmap = false, publishToDashboard = false, token, host } = {}) {
         this.client = new DeliverooClient({ token, host });
         this.events = new SocketEventAdapter(this.client);
         this.ctx = new AgentContext(this.client, dashboardClient);
 
         this._trackHeatmap = trackHeatmap;
         this._publishToDashboard = publishToDashboard;
-        this._waitForInfo = waitForInfo;
     }
 
     /**
@@ -41,10 +39,17 @@ export class BaseAgent {
      * @returns {Promise<void>}
      */
     async init() {
+        // NOTE: we intentionally do NOT block on the `info` event. In this SDK
+        // version `info` is deprecated and only emitted for admin tokens, so a
+        // normal agent that awaited it would hang forever in init(). We instead
+        // derive `elapsedTime` from a wall-clock start time (see #onSensing).
         const waiters = [this.#waitForMap(), this.#waitForYou(), this.#waitForConfig()];
-        if (this._waitForInfo) waiters.push(this.#waitForFirstInfo());
 
         await Promise.all(waiters);
+
+        // Reference point for elapsed-time tracking (used by staleness-based
+        // exploration and the dashboard).
+        this._startTime = Date.now();
 
         console.log('Initial beliefs acquired');
 
@@ -64,7 +69,9 @@ export class BaseAgent {
 
         // Continuous belief updates.
         this.client.onSensing((sensing) => this.#onSensing(sensing));
-        this.client.on('info', (info) => { this.ctx.elapsedTime = info.ms; });
+        // Keep listening for `info` in case an admin token receives it; harmless
+        // otherwise. Wall-clock time (below) is the primary source.
+        this.client.on('info', (info) => { if (info && typeof info.ms === 'number') this.ctx.elapsedTime = info.ms; });
 
         console.log('All beliefs acquired — agent ready.');
     }
@@ -90,15 +97,13 @@ export class BaseAgent {
         });
     }
 
-    #waitForFirstInfo() {
-        return this.events.onceInfo((info) => {
-            this.ctx.elapsedTime = info.ms;
-        });
-    }
-
     // ── Continuous sensing ──────────────────────────────────────────────────
 
     #onSensing(sensing) {
+        // Advance the elapsed-time clock from the wall clock. This replaces the
+        // deprecated `info.ms` tick and keeps staleness-based exploration working.
+        if (this._startTime != null) this.ctx.elapsedTime = Date.now() - this._startTime;
+
         this.ctx.world.markSensed(sensing.positions, this.ctx.elapsedTime);
         this.ctx.perception.updateFromSensing(sensing);
 

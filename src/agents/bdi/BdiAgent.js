@@ -33,7 +33,7 @@ const START_DELAY_MS = 1000;
 export class BdiAgent extends BaseAgent {
     /** @param {object} [options] - forwarded to {@link BaseAgent}. */
     constructor(options = {}) {
-        super({ ...options, waitForInfo: true });
+        super(options);
 
         /** The intention as an executable move queue. */
         this.queue = new IntentionQueue(this.ctx);
