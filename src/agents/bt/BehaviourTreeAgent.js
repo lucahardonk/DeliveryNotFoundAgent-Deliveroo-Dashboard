@@ -44,6 +44,7 @@ export class BehaviourTreeAgent extends BaseAgent {
 
         const executionLoop = async () => {
             while (true) {
+                this.blackboard.resetMoveFailedFlag();
                 await tick(this.blackboard);
             }
         };

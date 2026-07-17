@@ -33,10 +33,11 @@ export async function pickupClosestParcel(bb) {
         bb.actions.length = 0;
     } else if (bb.hasNavigationPath(dest => bb.destinationIsParcelTile(dest))) {
         await stepAlongPath(bb);
-    } else {
+    } else if (!bb.lastMoveFailed) {
         const navigationPath = await bb.getPathToClosestTargetTiles(
             bb.ctx.perception.sensedParcels.map(parcel => ({ x: parcel.x, y: parcel.y }))
         );
+        if (navigationPath.distance === Infinity) return;
         console.log('Navigation path to closest parcel planned:');
         console.dir(navigationPath, { depth: null });
         bb.loadIntentionActions(navigationPath);

@@ -18,6 +18,7 @@ export async function stepAlongPath(bb) {
     if (!success) {
         console.error('Move failed, aborting current navigation path');
         bb.actions.length = 0; // clear remaining planned moves
+        bb.flagMoveFailed();
     }
 
     return Boolean(success);

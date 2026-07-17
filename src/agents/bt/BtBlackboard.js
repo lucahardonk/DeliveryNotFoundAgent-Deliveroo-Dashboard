@@ -20,7 +20,23 @@ export class BtBlackboard {
         this.ctx = ctx;
         /** @type {TileMoveTile[]} — the currently queued moves. */
         this.actions = [];
+        /** @type {boolean} — whether the last attempted move failed. */
+        this._moveFailed = false;
     }
+
+    // ── Action / move-failure flag helpers ─────────────────────────────────
+
+    /** Clears every queued move. */
+    clearActions() { this.actions.length = 0; }
+
+    /** Marks that the last attempted move failed. */
+    flagMoveFailed() { this._moveFailed = true; }
+
+    /** Resets the move-failed flag (called at the top of each BT tick). */
+    resetMoveFailedFlag() { this._moveFailed = false; }
+
+    /** @returns {boolean} whether the last attempted move failed. */
+    get lastMoveFailed() { return this._moveFailed; }
 
     // ── Belief queries ──────────────────────────────────────────────────────
 
