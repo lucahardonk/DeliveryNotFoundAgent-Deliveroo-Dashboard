@@ -3,18 +3,16 @@
   "version": "1.0",
   "description": "Project for Autonomous Software Agents @unitn 2025-26",
   "type": "module",
-  "main": "index.js",
-  "module": "index.js",
+  "main": "src/app/main.js",
+  "module": "src/app/main.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node src/app/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Luca Hardonk, Matteo Ranzi",
   "license": "ISC",
   "imports": {
-    "#@unitn-asa/deliveroo-js-sdk/*": "./node_modules/@unitn-asa/deliveroo-js-sdk/*",
-    "#types/*.js": "./src/types/*.js",
-    "#MultiAgentSystem/*.js": "./src/MultiAgentSystem/*.js"
+    "#@unitn-asa/deliveroo-js-sdk/*": "./node_modules/@unitn-asa/deliveroo-js-sdk/*"
   },
   "dependencies": {
     "@datastructures-js/priority-queue": "latest",

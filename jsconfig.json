@@ -7,8 +7,7 @@
     "allowJs": true,
     "checkJs": true,
     "paths": {
-      "#@unitn-asa/deliveroo-js-sdk/*": ["./node_modules/@unitn-asa/deliveroo-js-sdk/*"],
-      "#types/*.js": ["./types/*.js"]
+      "#@unitn-asa/deliveroo-js-sdk/*": ["./node_modules/@unitn-asa/deliveroo-js-sdk/*"]
     }
   },
   "exclude": [
