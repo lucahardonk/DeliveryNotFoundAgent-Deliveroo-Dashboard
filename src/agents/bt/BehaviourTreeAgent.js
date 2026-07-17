@@ -16,9 +16,11 @@ export class BehaviourTreeAgent extends BaseAgent {
     /**
      * @param {object} [options]
      * @param {object|null} [options.dashboardClient] - dashboard push client.
+     * @param {string} [options.token] - auth token; defaults to `process.env.TOKEN`.
+     * @param {string} [options.host] - server URL; defaults to `process.env.HOST`.
      */
-    constructor({ dashboardClient = null } = {}) {
-        super({ dashboardClient, trackHeatmap: true, publishToDashboard: true });
+    constructor({ dashboardClient = null, token, host } = {}) {
+        super({ dashboardClient, trackHeatmap: true, publishToDashboard: true, token, host });
 
         this.blackboard = new BtBlackboard(this.ctx);
         this.tree = buildTree();

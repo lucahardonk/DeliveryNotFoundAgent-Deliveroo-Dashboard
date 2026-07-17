@@ -11,8 +11,16 @@ import { DjsConnect } from '@unitn-asa/deliveroo-js-sdk/client';
  * @typedef {import("../domain/Position.js").MoveDirection} MoveDirection
  */
 export class DeliverooClient {
-    constructor() {
-        this.socket = DjsConnect();
+    /**
+     * @param {object} [options]
+     * @param {string} [options.token] - auth token; defaults to `process.env.TOKEN`.
+     * @param {string} [options.host]  - server URL; defaults to `process.env.HOST`.
+     */
+    constructor({ token, host } = {}) {
+        // DjsConnect(host, token, name) — fall back to env vars when omitted so a
+        // single-token .env still works, while allowing one token per agent when
+        // spawning several agents in the same process.
+        this.socket = DjsConnect(host || process.env.HOST, token || process.env.TOKEN);
     }
 
     // ── Event registration ────────────────────────────────────────────────

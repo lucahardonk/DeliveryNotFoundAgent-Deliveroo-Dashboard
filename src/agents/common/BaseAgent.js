@@ -23,9 +23,11 @@ export class BaseAgent {
      * @param {boolean} [options.trackHeatmap=false] - maintain the parcel heatmap.
      * @param {boolean} [options.publishToDashboard=false] - push snapshots on each sensing.
      * @param {boolean} [options.waitForInfo=false] - also await the first `info` tick during init.
+     * @param {string} [options.token] - auth token for this agent; defaults to `process.env.TOKEN`.
+     * @param {string} [options.host] - server URL; defaults to `process.env.HOST`.
      */
-    constructor({ dashboardClient = null, trackHeatmap = false, publishToDashboard = false, waitForInfo = false } = {}) {
-        this.client = new DeliverooClient();
+    constructor({ dashboardClient = null, trackHeatmap = false, publishToDashboard = false, waitForInfo = false, token, host } = {}) {
+        this.client = new DeliverooClient({ token, host });
         this.events = new SocketEventAdapter(this.client);
         this.ctx = new AgentContext(this.client, dashboardClient);
 

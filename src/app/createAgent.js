@@ -15,14 +15,17 @@ import { BdiAgent } from '../agents/bdi/BdiAgent.js';
  * `src/main.js`.
  *
  * @param {AgentType} [type='bt'] - which strategy to instantiate.
+ * @param {object} [options] - per-agent options.
+ * @param {string} [options.token] - auth token; defaults to `process.env.TOKEN`.
+ * @param {string} [options.host] - server URL; defaults to `process.env.HOST`.
  * @returns {import("../agents/common/BaseAgent.js").BaseAgent}
  */
-export function createAgent(type = 'bt') {
+export function createAgent(type = 'bt', { token, host } = {}) {
     switch (type) {
         case 'bt':
-            return new BehaviourTreeAgent({ dashboardClient });
+            return new BehaviourTreeAgent({ dashboardClient, token, host });
         case 'bdi':
-            return new BdiAgent();
+            return new BdiAgent({ dashboardClient, token, host });
         default:
             throw new Error(`Unknown agent type: '${type}'. Expected 'bt' or 'bdi'.`);
     }
