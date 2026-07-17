@@ -31,6 +31,7 @@ export function buildTree() {
             if (bb.isOnParcelTile()) {
                 // Deviation goal reached: grab the parcel and reset the path.
                 await pickUpHere(bb);
+                return; // Don't continue to delivery in the same tick
             }
 
             if (bb.hasNavigationPath(dest => bb.destinationIsParcelTile(dest))) {

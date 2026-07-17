@@ -18,6 +18,7 @@ export async function deliverParcel(bb) {
     if (bb.isOnDeliveryTile()) {
         console.log('Delivering parcel...');
         await bb.ctx.client.putdown();
+        bb.clearActions(); // Clear navigation path after successful delivery
     } else if (bb.hasNavigationPath(dest => bb.destinationIsDeliveryTile(dest))) {
         await stepAlongPath(bb);
     } else {
