@@ -6,10 +6,10 @@
  * (`#getPathToClosestTargetTiles`, `#loadIntentionActions`, `#stepAlongPath`),
  * now reading from the shared {@link AgentContext}.
  *
- * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
- * @typedef {import("../common/navigation/Path.js").NavigationPath} NavigationPath
- * @typedef {import("../common/navigation/Path.js").TileMoveTile} TileMoveTile
- * @typedef {import("../common/domain/Position.js").TilePosition} TilePosition
+ * @typedef {import("../base_agent/AgentContext.js").AgentContext} AgentContext
+ * @typedef {import("../base_agent/navigation/Path.js").NavigationPath} NavigationPath
+ * @typedef {import("../base_agent/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../base_agent/domain/Position.js").TilePosition} TilePosition
  */
 export class IntentionQueue {
     /** @param {AgentContext} ctx */

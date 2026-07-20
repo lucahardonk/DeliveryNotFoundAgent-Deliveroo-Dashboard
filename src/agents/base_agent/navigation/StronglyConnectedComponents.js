@@ -1,5 +1,5 @@
 import { TILE_TYPES } from '../domain/Tile.js';
-import { getNeighbors } from '../world/MapModel.js';
+import { getNeighbors } from '../beliefs/MapModel.js';
 
 /**
  * @typedef {import("../domain/Position.js").TilePosition} TilePosition

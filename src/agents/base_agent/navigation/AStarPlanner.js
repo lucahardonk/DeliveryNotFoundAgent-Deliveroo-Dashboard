@@ -1,5 +1,5 @@
 import { MinPriorityQueue } from '@datastructures-js/priority-queue';
-import { getNeighbors } from '../world/MapModel.js';
+import { getNeighbors } from '../beliefs/MapModel.js';
 import { reconstructPath } from './Path.js';
 
 /**

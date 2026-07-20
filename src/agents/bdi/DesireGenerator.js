@@ -5,7 +5,7 @@
  * utility score derived from domain heuristics. The utility formulas are ported
  * verbatim from the monolithic `BDI_Agent_2` so ranking behaviour is unchanged.
  *
- * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
+ * @typedef {import("../base_agent/AgentContext.js").AgentContext} AgentContext
  * @typedef {import("./BdiBeliefs.js").BdiBeliefs} BdiBeliefs
  *
  * @typedef {Object} Desire

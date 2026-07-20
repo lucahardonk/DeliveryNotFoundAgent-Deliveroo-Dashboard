@@ -1,5 +1,5 @@
-import { TILE_TYPES } from '../common/domain/Tile.js';
-import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from '../common/domain/Parcel.js';
+import { TILE_TYPES } from '../base_agent/domain/Tile.js';
+import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from '../base_agent/domain/Parcel.js';
 
 /**
  * Shared working memory for the behaviour tree.
@@ -9,10 +9,10 @@ import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from 
  * ports of the original monolithic `BT_Agent` private methods, now reading from
  * the shared {@link AgentContext} instead of private class fields.
  *
- * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
- * @typedef {import("../common/navigation/Path.js").NavigationPath} NavigationPath
- * @typedef {import("../common/navigation/Path.js").TileMoveTile} TileMoveTile
- * @typedef {import("../common/domain/Position.js").TilePosition} TilePosition
+ * @typedef {import("../base_agent/AgentContext.js").AgentContext} AgentContext
+ * @typedef {import("../base_agent/navigation/Path.js").NavigationPath} NavigationPath
+ * @typedef {import("../base_agent/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../base_agent/domain/Position.js").TilePosition} TilePosition
  */
 export class BtBlackboard {
     /** @param {AgentContext} ctx */
@@ -172,7 +172,7 @@ export class BtBlackboard {
 
     /**
      * Retry-aware single move (delegates to the shared movement executor).
-     * @param {import("../common/domain/Position.js").MoveDirection} direction
+     * @param {import("../base_agent/domain/Position.js").MoveDirection} direction
      * @param {number} [maxAttempts=3]
      * @returns {Promise<object|null>}
      */

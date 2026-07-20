@@ -1,4 +1,4 @@
-import { BaseAgent } from '../common/BaseAgent.js';
+import { BaseAgent } from '../base_agent/BaseAgent.js';
 import { BtBlackboard } from './BtBlackboard.js';
 import { buildTree } from './tree/buildTree.js';
 

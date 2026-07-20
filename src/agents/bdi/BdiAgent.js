@@ -1,4 +1,4 @@
-import { BaseAgent } from '../common/BaseAgent.js';
+import { BaseAgent } from '../base_agent/BaseAgent.js';
 import { BdiBeliefs } from './BdiBeliefs.js';
 import { IntentionQueue } from './IntentionQueue.js';
 import { DesireGenerator } from './DesireGenerator.js';
@@ -14,7 +14,7 @@ const START_DELAY_MS = 1000;
  * Plans read the world through this instead of reaching into agent internals.
  *
  * @typedef {Object} BdiFacade
- * @property {import("../common/AgentContext.js").AgentContext} ctx
+ * @property {import("../base_agent/AgentContext.js").AgentContext} ctx
  * @property {BdiBeliefs} beliefs
  * @property {IntentionQueue} queue
  * @property {import("../../dashboard/api/DeliverooClient.js").DeliverooClient} client
@@ -81,7 +81,7 @@ export class BdiAgent extends BaseAgent {
         this.selector.removeDynamicPlan(planId);
     }
 
-    /** @returns {import("../common/navigation/Path.js").TileMoveTile[]} */
+    /** @returns {import("../base_agent/navigation/Path.js").TileMoveTile[]} */
     _currentPath() {
         return this.queue.actions;
     }

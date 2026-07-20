@@ -25,7 +25,7 @@ import { BdiAgent } from './agents/bdi/BdiAgent.js';
  * @param {object} [options] - per-agent options.
  * @param {string} [options.token] - auth token; defaults to `process.env.TOKEN`.
  * @param {string} [options.host] - server URL; defaults to `process.env.HOST`.
- * @returns {import("./agents/common/BaseAgent.js").BaseAgent}
+ * @returns {import("./agents/base_agent/BaseAgent.js").BaseAgent}
  */
 function createAgent(type = 'bt', { token, host } = {}) {
     switch (type) {

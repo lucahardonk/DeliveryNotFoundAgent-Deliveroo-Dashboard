@@ -1,7 +1,7 @@
-import { WorldState } from './world/WorldState.js';
-import { PerceptionStore } from './world/PerceptionStore.js';
-import { ReachabilityMap } from './world/ReachabilityMap.js';
-import { Heatmap } from './world/Heatmap.js';
+import { WorldState } from './beliefs/WorldState.js';
+import { PerceptionStore } from './beliefs/PerceptionStore.js';
+import { ReachabilityMap } from './beliefs/ReachabilityMap.js';
+import { Heatmap } from './beliefs/Heatmap.js';
 import { AStarPlanner } from './navigation/AStarPlanner.js';
 import { MovementExecutor } from './navigation/MovementExecutor.js';
 import { AgentState } from './domain/AgentState.js';

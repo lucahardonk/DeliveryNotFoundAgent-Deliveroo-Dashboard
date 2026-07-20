@@ -4,7 +4,7 @@
  * tile", "is a still-valid tile").
  *
  * @param {import("../../BtBlackboard.js").BtBlackboard} bb
- * @param {(destination: import("../../../common/domain/Position.js").TilePosition) => boolean} predicate
+ * @param {(destination: import("../../../base_agent/domain/Position.js").TilePosition) => boolean} predicate
  * @returns {boolean}
  */
 export function isAtDestination(bb, predicate) {
