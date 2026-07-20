@@ -1,4 +1,4 @@
-import { StronglyConnectedComponents } from '../navigation/StronglyConnectedComponents.js';
+import { StronglyConnectedComponents } from '../capabilities/StronglyConnectedComponents.js';
 
 /**
  * Reachability belief derived from the static map.

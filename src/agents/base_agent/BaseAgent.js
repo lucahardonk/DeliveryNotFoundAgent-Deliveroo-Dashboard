@@ -127,7 +127,7 @@ export class BaseAgent {
     /**
      * The agent's currently queued moves, used when building dashboard
      * snapshots. Overridden by subclasses that expose an intention queue.
-     * @returns {import("./navigation/Path.js").TileMoveTile[]}
+     * @returns {import("./capabilities/Path.js").TileMoveTile[]}
      */
     _currentPath() {
         return [];

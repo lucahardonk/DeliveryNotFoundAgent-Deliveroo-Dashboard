@@ -10,8 +10,8 @@ import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from 
  * the shared {@link AgentContext} instead of private class fields.
  *
  * @typedef {import("../base_agent/AgentContext.js").AgentContext} AgentContext
- * @typedef {import("../base_agent/navigation/Path.js").NavigationPath} NavigationPath
- * @typedef {import("../base_agent/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../base_agent/capabilities/Path.js").NavigationPath} NavigationPath
+ * @typedef {import("../base_agent/capabilities/Path.js").TileMoveTile} TileMoveTile
  * @typedef {import("../base_agent/domain/Position.js").TilePosition} TilePosition
  */
 export class BtBlackboard {

@@ -81,7 +81,7 @@ export class BdiAgent extends BaseAgent {
         this.selector.removeDynamicPlan(planId);
     }
 
-    /** @returns {import("../base_agent/navigation/Path.js").TileMoveTile[]} */
+    /** @returns {import("../base_agent/capabilities/Path.js").TileMoveTile[]} */
     _currentPath() {
         return this.queue.actions;
     }

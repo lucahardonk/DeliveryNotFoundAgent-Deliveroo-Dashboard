@@ -2,8 +2,8 @@ import { WorldState } from './beliefs/WorldState.js';
 import { PerceptionStore } from './beliefs/PerceptionStore.js';
 import { ReachabilityMap } from './beliefs/ReachabilityMap.js';
 import { Heatmap } from './beliefs/Heatmap.js';
-import { AStarPlanner } from './navigation/AStarPlanner.js';
-import { MovementExecutor } from './navigation/MovementExecutor.js';
+import { AStarPlanner } from './capabilities/AStarPlanner.js';
+import { MovementExecutor } from './capabilities/MovementExecutor.js';
 import { AgentState } from './domain/AgentState.js';
 import { GameConfig } from './domain/GameConfig.js';
 
