@@ -9,7 +9,7 @@
  * @typedef {import("../domain/Position.js").MoveDirection} MoveDirection
  */
 export class MovementExecutor {
-    /** @param {import("../api/DeliverooClient.js").DeliverooClient} client */
+    /** @param {import("../../../dashboard/api/DeliverooClient.js").DeliverooClient} client */
     constructor(client) {
         this.client = client;
     }

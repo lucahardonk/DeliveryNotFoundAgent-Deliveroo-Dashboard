@@ -1,5 +1,5 @@
-import { TILE_TYPES } from '../../core/domain/Tile.js';
-import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from '../../core/domain/Parcel.js';
+import { TILE_TYPES } from '../common/domain/Tile.js';
+import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from '../common/domain/Parcel.js';
 
 /**
  * Shared working memory for the behaviour tree.
@@ -10,9 +10,9 @@ import { carriedParcelsValueAfterSteps, carriedParcelsValueWithDeviation } from 
  * the shared {@link AgentContext} instead of private class fields.
  *
  * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
- * @typedef {import("../../core/navigation/Path.js").NavigationPath} NavigationPath
- * @typedef {import("../../core/navigation/Path.js").TileMoveTile} TileMoveTile
- * @typedef {import("../../core/domain/Position.js").TilePosition} TilePosition
+ * @typedef {import("../common/navigation/Path.js").NavigationPath} NavigationPath
+ * @typedef {import("../common/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../common/domain/Position.js").TilePosition} TilePosition
  */
 export class BtBlackboard {
     /** @param {AgentContext} ctx */
@@ -172,7 +172,7 @@ export class BtBlackboard {
 
     /**
      * Retry-aware single move (delegates to the shared movement executor).
-     * @param {import("../../core/domain/Position.js").MoveDirection} direction
+     * @param {import("../common/domain/Position.js").MoveDirection} direction
      * @param {number} [maxAttempts=3]
      * @returns {Promise<object|null>}
      */

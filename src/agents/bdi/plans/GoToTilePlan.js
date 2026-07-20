@@ -1,4 +1,4 @@
-import { TILE_TYPES } from '../../../core/domain/Tile.js';
+import { TILE_TYPES } from '../../common/domain/Tile.js';
 
 /**
  * EXPLORE plans for the BDI plan library.

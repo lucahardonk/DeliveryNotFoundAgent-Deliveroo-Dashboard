@@ -8,7 +8,7 @@ import { DjsConnect } from '@unitn-asa/deliveroo-js-sdk/client';
  * (move / pickup / putdown / shout + event registration) instead of the raw
  * SDK socket. `move` is promisified for convenient `await`ing.
  *
- * @typedef {import("../domain/Position.js").MoveDirection} MoveDirection
+ * @typedef {import("../../agents/common/domain/Position.js").MoveDirection} MoveDirection
  */
 export class DeliverooClient {
     /**

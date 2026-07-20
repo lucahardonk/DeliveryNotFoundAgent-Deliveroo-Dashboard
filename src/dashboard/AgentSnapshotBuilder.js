@@ -3,8 +3,8 @@
  * to the dashboard server. Kept separate from any concrete agent so every agent
  * type (BDI, BT, ...) produces exactly the same shape.
  *
- * @typedef {import("../navigation/Path.js").TileMoveTile} TileMoveTile
- * @typedef {import("../../agents/common/AgentContext.js").AgentContext} AgentContext
+ * @typedef {import("../agents/common/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../agents/common/AgentContext.js").AgentContext} AgentContext
  */
 
 /**

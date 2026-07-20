@@ -1,7 +1,7 @@
-import { DeliverooClient } from '../../core/api/DeliverooClient.js';
-import { SocketEventAdapter } from '../../core/api/SocketEventAdapter.js';
+import { DeliverooClient } from '../../dashboard/api/DeliverooClient.js';
+import { SocketEventAdapter } from '../../dashboard/api/SocketEventAdapter.js';
 import { AgentContext } from './AgentContext.js';
-import { buildAgentSnapshot } from '../../core/dashboard/AgentSnapshotBuilder.js';
+import { buildAgentSnapshot } from '../../dashboard/AgentSnapshotBuilder.js';
 
 /**
  * Base class shared by every concrete agent (BDI, BT, ...).
@@ -127,7 +127,7 @@ export class BaseAgent {
     /**
      * The agent's currently queued moves, used when building dashboard
      * snapshots. Overridden by subclasses that expose an intention queue.
-     * @returns {import("../../core/navigation/Path.js").TileMoveTile[]}
+     * @returns {import("./navigation/Path.js").TileMoveTile[]}
      */
     _currentPath() {
         return [];

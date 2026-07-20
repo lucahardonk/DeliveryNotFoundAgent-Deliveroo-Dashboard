@@ -17,7 +17,7 @@ const START_DELAY_MS = 1000;
  * @property {import("../common/AgentContext.js").AgentContext} ctx
  * @property {BdiBeliefs} beliefs
  * @property {IntentionQueue} queue
- * @property {import("../../core/api/DeliverooClient.js").DeliverooClient} client
+ * @property {import("../../dashboard/api/DeliverooClient.js").DeliverooClient} client
  */
 
 /**
@@ -81,7 +81,7 @@ export class BdiAgent extends BaseAgent {
         this.selector.removeDynamicPlan(planId);
     }
 
-    /** @returns {import("../../core/navigation/Path.js").TileMoveTile[]} */
+    /** @returns {import("../common/navigation/Path.js").TileMoveTile[]} */
     _currentPath() {
         return this.queue.actions;
     }

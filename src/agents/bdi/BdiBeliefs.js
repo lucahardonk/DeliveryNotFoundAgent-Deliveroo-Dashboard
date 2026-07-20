@@ -1,4 +1,4 @@
-import { TILE_TYPES } from '../../core/domain/Tile.js';
+import { TILE_TYPES } from '../common/domain/Tile.js';
 
 /**
  * Read-only belief queries for the BDI agent.
@@ -11,7 +11,7 @@ import { TILE_TYPES } from '../../core/domain/Tile.js';
  *
  * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
  * @typedef {import("./IntentionQueue.js").IntentionQueue} IntentionQueue
- * @typedef {import("../../core/domain/Position.js").TilePosition} TilePosition
+ * @typedef {import("../common/domain/Position.js").TilePosition} TilePosition
  */
 export class BdiBeliefs {
     /**

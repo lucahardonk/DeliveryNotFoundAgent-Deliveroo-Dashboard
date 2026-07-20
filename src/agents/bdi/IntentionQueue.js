@@ -7,9 +7,9 @@
  * now reading from the shared {@link AgentContext}.
  *
  * @typedef {import("../common/AgentContext.js").AgentContext} AgentContext
- * @typedef {import("../../core/navigation/Path.js").NavigationPath} NavigationPath
- * @typedef {import("../../core/navigation/Path.js").TileMoveTile} TileMoveTile
- * @typedef {import("../../core/domain/Position.js").TilePosition} TilePosition
+ * @typedef {import("../common/navigation/Path.js").NavigationPath} NavigationPath
+ * @typedef {import("../common/navigation/Path.js").TileMoveTile} TileMoveTile
+ * @typedef {import("../common/domain/Position.js").TilePosition} TilePosition
  */
 export class IntentionQueue {
     /** @param {AgentContext} ctx */

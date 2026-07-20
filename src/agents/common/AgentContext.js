@@ -1,11 +1,11 @@
-import { WorldState } from '../../core/world/WorldState.js';
-import { PerceptionStore } from '../../core/world/PerceptionStore.js';
-import { ReachabilityMap } from '../../core/world/ReachabilityMap.js';
-import { Heatmap } from '../../core/world/Heatmap.js';
-import { AStarPlanner } from '../../core/navigation/AStarPlanner.js';
-import { MovementExecutor } from '../../core/navigation/MovementExecutor.js';
-import { AgentState } from '../../core/domain/AgentState.js';
-import { GameConfig } from '../../core/domain/GameConfig.js';
+import { WorldState } from './world/WorldState.js';
+import { PerceptionStore } from './world/PerceptionStore.js';
+import { ReachabilityMap } from './world/ReachabilityMap.js';
+import { Heatmap } from './world/Heatmap.js';
+import { AStarPlanner } from './navigation/AStarPlanner.js';
+import { MovementExecutor } from './navigation/MovementExecutor.js';
+import { AgentState } from './domain/AgentState.js';
+import { GameConfig } from './domain/GameConfig.js';
 
 /**
  * The shared "world model + services" bundle every agent operates on.
@@ -17,7 +17,7 @@ import { GameConfig } from '../../core/domain/GameConfig.js';
  */
 export class AgentContext {
     /**
-     * @param {import("../../core/api/DeliverooClient.js").DeliverooClient} client
+     * @param {import("../../dashboard/api/DeliverooClient.js").DeliverooClient} client
      * @param {object|null} [dashboardClient] - optional dashboard ingestion client.
      */
     constructor(client, dashboardClient = null) {

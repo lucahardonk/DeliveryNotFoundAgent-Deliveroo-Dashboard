@@ -3,10 +3,10 @@
   "version": "1.0",
   "description": "Project for Autonomous Software Agents @unitn 2025-26",
   "type": "module",
-  "main": "src/app/main.js",
-  "module": "src/app/main.js",
+  "main": "src/main.js",
+  "module": "src/main.js",
   "scripts": {
-    "start": "node src/app/main.js",
+    "start": "node src/main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Luca Hardonk, Matteo Ranzi",
