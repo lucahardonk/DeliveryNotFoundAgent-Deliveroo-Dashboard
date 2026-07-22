@@ -1,5 +1,5 @@
-import { AgentCore } from '../common/AgentCore.js';
-import { bfs } from '../common/grid.js';
+import { AgentCore } from './AgentCore.js';
+import { bfs } from './grid.js';
 
 const TICK_MS = 200;
 

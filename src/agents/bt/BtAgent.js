@@ -1,4 +1,4 @@
-import { AgentCore } from '../common/AgentCore.js';
+import { AgentCore } from '../bdi/AgentCore.js';
 
 const TICK_MS = 200;
 
