@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Deliveroo Agents — Live Dashboard</title>
+<style>
+  :root { --bg:#0f1117; --card:#1a1d27; --line:#2a2e3a; --txt:#e6e8ef; --muted:#8b90a0; --accent:#00c48c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         background:var(--bg); color:var(--txt); padding:24px; }
+  header { display:flex; align-items:baseline; gap:12px; margin-bottom:20px; }
+  h1 { font-size:20px; margin:0; }
+  .sub { color:var(--muted); font-size:13px; }
+  #status { margin-left:auto; font-size:13px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border-radius:10px; overflow:hidden; }
+  th, td { padding:12px 14px; text-align:left; border-bottom:1px solid var(--line); font-size:14px; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  tr:last-child td { border-bottom:none; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+  .type-bt { background:#1e3a8a33; color:#93c5fd; }
+  .type-bdi { background:#5b21b633; color:#c4b5fd; }
+  .type-base { background:#78350f33; color:#fcd34d; }
+  .status-running { color:var(--accent); }
+  .status-error { color:#f87171; }
+  .empty { padding:40px; text-align:center; color:var(--muted); }
+  code { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛵 Deliveroo Agents</h1>
+  <span class="sub">live dashboard · polling REST API every 2s</span>
+  <span id="status">connecting…</span>
+</header>
+
+<table>
+  <thead>
+    <tr>
+      <th>Agent</th><th>Type</th><th>Status</th><th>Action</th>
+      <th>Position</th><th>Score</th><th>Carrying</th><th>Free parcels</th><th>Last update</th>
+    </tr>
+  </thead>
+  <tbody id="rows">
+    <tr><td colspan="9" class="empty">No agents reporting yet. Start the agents with <code>npm start</code>.</td></tr>
+  </tbody>
+</table>
+
+<script>
+  const fmtAge = (ts) => {
+    if (!ts) return '—';
+    const s = Math.round((Date.now() - ts) / 1000);
+    return s < 1 ? 'now' : `${s}s ago`;
+  };
+
+  async function refresh() {
+    const statusEl = document.getElementById('status');
+    try {
+      const res = await fetch('/api/agents');
+      const data = await res.json();
+      const agents = Object.values(data);
+      statusEl.textContent = `${agents.length} agent(s) · ${new Date().toLocaleTimeString()}`;
+      const rows = document.getElementById('rows');
+
+      if (!agents.length) {
+        rows.innerHTML = '<tr><td colspan="9" class="empty">No agents reporting yet.</td></tr>';
+        return;
+      }
+
+      agents.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+      rows.innerHTML = agents.map((a) => `
+        <tr>
+          <td><strong>${a.label ?? a.id}</strong><br><span class="sub">${a.id}</span></td>
+          <td><span class="badge type-${a.type}">${(a.type ?? '?').toUpperCase()}</span></td>
+          <td class="status-${a.status}">${a.status ?? '—'}</td>
+          <td>${a.action ?? '—'}</td>
+          <td>(${a.position?.x ?? '?'}, ${a.position?.y ?? '?'})</td>
+          <td>${a.score ?? 0}</td>
+          <td>${a.carrying ?? 0}</td>
+          <td>${a.freeParcels ?? 0}</td>
+          <td class="sub">${fmtAge(a.updatedAt)}</td>
+        </tr>`).join('');
+    } catch (err) {
+      statusEl.textContent = 'dashboard unreachable';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

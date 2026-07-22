@@ -1,127 +1,135 @@
-import { BaseAgent } from '../base_agent/BaseAgent.js';
-import { BdiBeliefs } from './BdiBeliefs.js';
-import { IntentionQueue } from './IntentionQueue.js';
-import { DesireGenerator } from './DesireGenerator.js';
-import { IntentionSelector } from './IntentionSelector.js';
-import { createDeliverPlans } from './plans/DeliverParcelPlan.js';
-import { createPickupPlans } from './plans/PickupParcelPlan.js';
-import { createExplorePlans } from './plans/GoToTilePlan.js';
+import { AgentCore } from '../common/AgentCore.js';
+import { bfs } from '../common/grid.js';
 
-const START_DELAY_MS = 1000;
-
-/**
- * The bundle of collaborators passed to every plan `context()` / `body()`.
- * Plans read the world through this instead of reaching into agent internals.
- *
- * @typedef {Object} BdiFacade
- * @property {import("../base_agent/AgentContext.js").AgentContext} ctx
- * @property {BdiBeliefs} beliefs
- * @property {IntentionQueue} queue
- * @property {import("../../dashboard/api/DeliverooClient.js").DeliverooClient} client
- */
+const TICK_MS = 200;
 
 /**
  * Belief–Desire–Intention agent.
  *
- * This is the decomposed successor of the monolithic `BDI_Agent_2`: the shared
- * connection/belief plumbing lives in {@link BaseAgent}, beliefs / desires /
- * plan-selection live in their own modules, and the plan library is assembled
- * from the `plans/` folder. The deliberation loop here is unchanged in
- * behaviour — expire dynamic plans, pick the best applicable intention, clear
- * the queue on an intention switch, then run one plan tick.
+ * Each deliberation cycle:
+ *   1. BELIEFS  — the live world model maintained by {@link AgentCore} (self,
+ *      parcels, other agents, map).
+ *   2. DESIRES  — candidate goals with a numeric score:
+ *        • deliver   (score grows with carried reward + closeness to a drop-off)
+ *        • pickup     (parcel reward minus travel distance)
+ *        • explore    (constant low baseline so the agent never idles)
+ *   3. INTENTION — commit to the highest-scoring desire and keep it until it is
+ *      achieved or becomes invalid (parcel gone, unreachable), then reconsider.
+ *   4. EXECUTE   — advance the committed intention by one action.
  */
-export class BdiAgent extends BaseAgent {
-    /** @param {object} [options] - forwarded to {@link BaseAgent}. */
-    constructor(options = {}) {
-        super(options);
-
-        /** The intention as an executable move queue. */
-        this.queue = new IntentionQueue(this.ctx);
-        /** Belief predicate helpers. */
-        this.beliefs = new BdiBeliefs(this.ctx, this.queue);
-        /** Scored-desire generator. */
-        this.desires = new DesireGenerator(this.ctx, this.beliefs);
-        /** Plan library + selection. */
-        this.selector = new IntentionSelector();
-
-        /** @type {BdiFacade} */
-        this.facade = {
-            ctx: this.ctx,
-            beliefs: this.beliefs,
-            queue: this.queue,
-            client: this.client,
-        };
-
-        /** @type {string|null} the currently committed goal, or null if idle. */
-        this.currentIntention = null;
+export class BdiAgent extends AgentCore {
+    constructor(opts) {
+        super({ ...opts, type: 'bdi', label: opts.label ?? 'BDI' });
+        /** @type {{goal:string, target?:object, parcelId?:string}|null} */
+        this.intention = null;
     }
 
-    /**
-     * Assembles the static plan library. Must run after {@link BaseAgent#init}
-     * so plan closures see fully-initialised beliefs.
-     */
-    #buildPlanLibrary() {
-        const plans = [
-            ...createDeliverPlans(this.facade),
-            ...createPickupPlans(this.facade),
-            ...createExplorePlans(this.facade),
-        ];
-        for (const plan of plans) {
-            this.selector.registerPlan(plan);
+    async run() {
+        for (;;) {
+            const desires = this._generateDesires();
+            const best = desires[0] ?? { goal: 'explore', score: 0 };
+
+            // Commit / reconsider: switch only when the current intention is no
+            // longer valid or a clearly better desire emerges.
+            if (!this._intentionStillValid()) {
+                this.intention = best;
+            }
+
+            const action = await this._execute(this.intention);
+            await this.reportState('running', action);
+            await this.sleep(TICK_MS);
         }
     }
 
-    /** Injects an ad-hoc dynamic plan at runtime. @param {object} plan */
-    injectDynamicPlan(plan) {
-        this.selector.injectDynamicPlan(plan);
-    }
+    // ── Desires ────────────────────────────────────────────────────────────
 
-    /** Removes a dynamic plan by id. @param {string} planId */
-    removeDynamicPlan(planId) {
-        this.selector.removeDynamicPlan(planId);
-    }
+    /** Builds the scored desire list, highest score first. */
+    _generateDesires() {
+        const desires = [];
 
-    /** @returns {import("../base_agent/capabilities/Path.js").TileMoveTile[]} */
-    _currentPath() {
-        return this.queue.actions;
-    }
-
-    async start() {
-        console.log('Initializing...');
-        await this.init();
-
-        this.#buildPlanLibrary();
-        console.log('Plan Library ready. Agent initialized.');
-        console.log('Starting BDI deliberation loop...');
-
-        const deliberationLoop = async () => {
-            while (true) {
-                // 1. Expire any timed-out dynamic plans
-                this.selector.expireDynamicPlans();
-
-                // 2. Select the best applicable intention for this tick
-                const selected = this.selector.selectIntention(this.desires.generateDesires());
-
-                if (!selected) {
-                    console.warn('[BDI] No applicable plan found. Waiting...');
-                    await new Promise(r => setTimeout(r, 200));
-                    continue;
-                }
-
-                const { desire, plan } = selected;
-
-                // 3. Detect intention change — clear navigation state on switch
-                if (desire.goal !== this.currentIntention) {
-                    console.log(`[BDI] Intention switch: ${this.currentIntention} → ${desire.goal} (plan: ${plan.id})`);
-                    this.queue.clear();
-                    this.currentIntention = desire.goal;
-                }
-
-                // 4. Execute one tick of the selected plan body
-                await plan.body();
+        // Deliver: only meaningful while carrying something.
+        const carried = this.carrying();
+        if (carried.length > 0) {
+            const del = this.nearestDelivery();
+            if (del) {
+                const reward = carried.reduce((s, p) => s + (p.reward ?? 1), 0);
+                desires.push({ goal: 'deliver', target: del.target, score: reward + 10 - del.dist });
             }
-        };
+        }
 
-        setTimeout(deliberationLoop, START_DELAY_MS);
+        // Pickup: one desire per reachable free parcel, scored by reward minus
+        // travel distance (closer, higher-reward parcels win).
+        const blocked = this.blockedTiles();
+        for (const p of this.freeParcels()) {
+            const r = bfs(this.map, this.me, { x: p.x, y: p.y }, blocked);
+            if (r) desires.push({ goal: 'pickup', target: { x: p.x, y: p.y }, parcelId: p.id, score: (p.reward ?? 1) - r.dist });
+        }
+
+        // Explore: constant low baseline so we never sit idle.
+        desires.push({ goal: 'explore', score: 0.1 });
+
+        desires.sort((a, b) => b.score - a.score);
+        return desires;
+    }
+
+    // ── Intention validity ───────────────────────────────────────────────────
+
+    _intentionStillValid() {
+        const it = this.intention;
+        if (!it) return false;
+        if (it.goal === 'deliver') return this.carrying().length > 0;
+        if (it.goal === 'pickup') {
+            const p = this.parcels.get(it.parcelId);
+            return Boolean(p && !p.carriedBy); // still there and still free
+        }
+        if (it.goal === 'explore') {
+            // abandon exploration as soon as there's something better to do.
+            return this.carrying().length === 0 && this.freeParcels().length === 0;
+        }
+        return false;
+    }
+
+    // ── Execute one intention step ─────────────────────────────────────────────
+
+    async _execute(intention) {
+        switch (intention?.goal) {
+            case 'deliver': {
+                if (this.atDelivery()) {
+                    await this.putdown();
+                    this.intention = null;
+                    return 'delivered parcels';
+                }
+                const del = this.nearestDelivery();
+                if (del) {
+                    await this.stepToward(del.target);
+                    return `deliver → (${del.target.x},${del.target.y})`;
+                }
+                return 'deliver (no route)';
+            }
+            case 'pickup': {
+                const p = this.parcels.get(intention.parcelId);
+                if (!p) { this.intention = null; return 'pickup (parcel gone)'; }
+                if (p.x === this.me.x && p.y === this.me.y) {
+                    await this.pickup();
+                    this.intention = null;
+                    return 'picked up parcel';
+                }
+                await this.stepToward({ x: p.x, y: p.y });
+                return `pickup → (${p.x},${p.y})`;
+            }
+            default:
+                await this._explore();
+                return 'exploring';
+        }
+    }
+
+    async _explore() {
+        const spawners = this.map?.spawnerTiles ?? [];
+        if (spawners.length) {
+            const target = spawners[Math.floor(Math.random() * spawners.length)];
+            if (await this.stepToward(target)) return;
+        }
+        const dirs = ['up', 'down', 'left', 'right'];
+        await this.client.move(dirs[Math.floor(Math.random() * dirs.length)]);
     }
 }
