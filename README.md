@@ -18,13 +18,13 @@ the [Deliveroo.js](https://github.com/unitn-ASA/Deliveroo.js) game, plus a
 │   └── public/index.html       #   vanilla HTML+JS, polls the REST API
 ├── src/
 │   └── agents/
-│       ├── common/             # shared foundation
-│       │   ├── AgentCore.js     #   connection, beliefs, capabilities, reporting
+│       ├── bdi/                 # BDI strategy + the shared foundation
+│       │   ├── AgentCore.js      #   connection, beliefs, capabilities, reporting
 │       │   ├── DeliverooClient.js  # thin SDK wrapper
-│       │   └── grid.js          #   map model + BFS pathfinding
-│       ├── bt/BtAgent.js        # Behaviour-Tree strategy
-│       ├── bdi/BdiAgent.js      # Belief–Desire–Intention strategy
-│       └── base_agent/BaseGreedyAgent.js  # greedy baseline strategy
+│       │   ├── grid.js          #   map model + BFS pathfinding
+│       │   └── BdiAgent.js      #   Belief–Desire–Intention strategy
+│       ├── bt/BtAgent.js        # Behaviour-Tree strategy   (imports core from ../bdi)
+│       └── base_agent/BaseGreedyAgent.js  # greedy baseline (imports core from ../bdi)
 ├── test/smoke.test.js          # runs without a live server (mock client)
 ├── documentation/              # (kept from the original project)
 └── examples/                   # (kept from the original project)
@@ -36,12 +36,17 @@ the [Deliveroo.js](https://github.com/unitn-ASA/Deliveroo.js) game, plus a
   SDK or the strategies — agents just `POST` their latest snapshot to it, and the
   browser polls it back out. You can run the dashboard on another port/host, or
   not at all; agents keep working either way (reporting is fire-and-forget).
+- **Only active agents are shown.** Agents report a few times per second. The
+  dashboard treats an agent as active only while it keeps reporting: if it goes
+  silent for `AGENT_TTL_MS` (default 5s) it is dropped. So the dashboard always
+  shows **exactly as many agents as there are active tokens** — leftovers from a
+  previous run (e.g. you ran 2 tokens, now run 1) disappear on their own.
 - **One process, many agents.** `main.js` spawns one agent per token; each runs
   its **own independent loop** (`AgentCore.run()` is overridden per strategy).
-- **Shared capabilities, distinct brains.** `AgentCore` provides the world model
-  (map, self, parcels, other agents) and low-level actions (BFS `stepToward`,
-  `pickup`, `putdown`, `reportState`). Each strategy only implements *how it
-  decides*:
+- **Shared capabilities, distinct brains.** `AgentCore` (in `src/agents/bdi/`,
+  reused by all three strategies) provides the world model (map, self, parcels,
+  other agents) and low-level actions (BFS `stepToward`, `pickup`, `putdown`,
+  `reportState`). Each strategy only implements *how it decides*:
   - `base` — greedy priority: deliver → pick up here → go to nearest parcel → explore.
   - `bt`   — the same priorities expressed as a small behaviour tree (selector/sequence).
   - `bdi`  — scored desires → commit to the best intention → execute until done/invalid.
