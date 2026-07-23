@@ -1,5 +1,5 @@
-import { DeliverooClient } from './DeliverooClient.js';
-import { buildMap, bfs, nearestReachable, TILE } from './grid.js';
+import { DeliverooClient } from '../DeliverooClient.js';
+import { buildMap, bfs, nearestReachable, TILE } from '../grid.js';
 
 /**
  * Shared foundation for every agent strategy (BT, BDI, base/greedy).

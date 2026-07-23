@@ -11,10 +11,10 @@
  */
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
-import { buildMap, bfs, nearestReachable, TILE } from '../src/agents/bdi/grid.js';
+import { buildMap, bfs, nearestReachable, TILE } from '../src/agents/bdi/old_code_as_ref/grid.js';
 import { BaseGreedyAgent } from '../src/agents/base_agent/BaseGreedyAgent.js';
 import { BtAgent } from '../src/agents/bt/BtAgent.js';
-import { BdiAgent } from '../src/agents/bdi/BdiAgent.js';
+import { BdiAgent } from '../src/agents/bdi/old_code_as_ref/BdiAgent.js';
 
 let passed = 0;
 const ok = (name) => { console.log(`  ✅ ${name}`); passed++; };
