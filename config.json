@@ -6,7 +6,7 @@
     {
       "name": "Greedy_One",
       "type": "base_agent",
-      "enabled": false,
+      "enabled": true,
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjM1MTBmZiIsIm5hbWUiOiJiYXNlX2FnZW50Iiwicm9sZSI6InVzZXIiLCJpYXQiOjE3ODQ4MDUxODR9.Y8caMrgs1RGPKy7kaSQpkP2-GIiIhbbprvkRIQjjvOs"
     },
     {
