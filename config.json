@@ -1,0 +1,27 @@
+{
+  "host": "http://localhost:8080/",
+  "dashboardUrl": "http://localhost:3001",
+  "tickMs": 200,
+  "agents": [
+    {
+      "name": "Greedy_One",
+      "type": "base_agent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjM1MTBmZiIsIm5hbWUiOiJiYXNlX2FnZW50Iiwicm9sZSI6InVzZXIiLCJpYXQiOjE3ODQ4MDUxODR9.Y8caMrgs1RGPKy7kaSQpkP2-GIiIhbbprvkRIQjjvOs"
+    },
+    {
+      "name": "Greedy_Two",
+      "type": "base_agent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjU2NjhmMyIsIm5hbWUiOiJhZ2VudDIiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgxOTczMH0.F6OeISMonGZVa4Ic06FsI0iUcfE42k63N-SoxCiZNXs"
+    },
+    {
+      "name": "Greedy_Three",
+      "type": "base_agent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjFjMzhkYiIsIm5hbWUiOiJhZ2VudDMiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgxOTczM30.6jevFY7dE42eEisljkdWircmUnJqKvwGXg9Twh1kEAA"
+    },
+    {
+      "name": "Greedy_Four",
+      "type": "base_agent",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImY3OTE2YyIsIm5hbWUiOiJhZ2VudDQiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgxOTczNX0.1ACBwDfIwwExEj_gZbTI2tsT10hnMaaggPcBRdPGkX8"
+    }
+  ]
+}
