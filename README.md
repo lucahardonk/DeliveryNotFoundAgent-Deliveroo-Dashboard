@@ -1,93 +1,80 @@
-# DeliveryNotFoundAgent — Deliveroo Dashboard
-
+DeliveryNotFoundAgent — Deliveroo Dashboard
 Autonomous Software Agents @ UniTN 2025-26.
-
 Minimal, modular JavaScript project: three interchangeable agent strategies for
-the [Deliveroo.js](https://github.com/unitn-ASA/Deliveroo.js) game, plus a
-**standalone live dashboard** that the agents talk to only over a small REST API.
-
-## Project layout
-
+the Deliveroo.js game, plus a
+standalone live dashboard that agents report to over a small REST + SSE API.
+Project layout
 ```
 .
-├── main.js                     # launcher: reads .env, spawns ONE agent per token
-├── .env.example                # configuration template
-├── dashboard/                  # ── standalone module (no agent code) ──
-│   ├── server.js               #   REST API + serves the UI (Express)
-│   ├── package.json            #   its own dependencies / start script
-│   └── public/index.html       #   vanilla HTML+JS, polls the REST API
+├── main.js                          # launcher: reads config.json, spawns one agent per entry
+├── config.json                      # all configuration (host, dashboard URL, agents + tokens)
+├── dashboard/
+│   ├── server.js                    # REST API + SSE broadcast + serves the UI (Express)
+│   ├── package.json
+│   └── public/index.html            # vanilla HTML+JS, real-time via SSE
 ├── src/
 │   └── agents/
-│       ├── bdi/                 # BDI strategy + the shared foundation
-│       │   ├── AgentCore.js      #   connection, beliefs, capabilities, reporting
-│       │   ├── DeliverooClient.js  # thin SDK wrapper
-│       │   ├── grid.js          #   map model + BFS pathfinding
-│       │   └── BdiAgent.js      #   Belief–Desire–Intention strategy
-│       ├── bt/BtAgent.js        # Behaviour-Tree strategy   (imports core from ../bdi)
-│       └── base_agent/BaseGreedyAgent.js  # greedy baseline (imports core from ../bdi)
-├── test/smoke.test.js          # runs without a live server (mock client)
-├── documentation/              # (kept from the original project)
-└── examples/                   # (kept from the original project)
+│       ├── base_agent/              # greedy baseline (fully standalone)
+│       │   ├── GreedyAgent.js       #   agent class: setup() + loop() + decision logic
+│       │   ├── astar.js             #   A* pathfinding (walkableFn + blocked set)
+│       │   ├── WorldModel.js        #   single source of truth: map, self, parcels, others
+│       │   ├── ServerIO.js          #   thin SDK wrapper: move / pickup / putdown hooks
+│       │   └── Dashboard.js         #   fire-and-forget POST to dashboard REST API
+│       ├── bdi/BdiAgent.js          # Belief–Desire–Intention strategy
+│       └── bt/BtAgent.js            # Behaviour-Tree strategy
+├── test/smoke.test.js
+├── documentation/
+└── examples/
 ```
-
-## Architecture
-
-- **Agents and dashboard are decoupled.** The dashboard knows nothing about the
-  SDK or the strategies — agents just `POST` their latest snapshot to it, and the
-  browser polls it back out. You can run the dashboard on another port/host, or
-  not at all; agents keep working either way (reporting is fire-and-forget).
-- **Only active agents are shown.** Agents report a few times per second. The
-  dashboard treats an agent as active only while it keeps reporting: if it goes
-  silent for `AGENT_TTL_MS` (default 5s) it is dropped. So the dashboard always
-  shows **exactly as many agents as there are active tokens** — leftovers from a
-  previous run (e.g. you ran 2 tokens, now run 1) disappear on their own.
-- **One process, many agents.** `main.js` spawns one agent per token; each runs
-  its **own independent loop** (`AgentCore.run()` is overridden per strategy).
-- **Shared capabilities, distinct brains.** `AgentCore` (in `src/agents/bdi/`,
-  reused by all three strategies) provides the world model (map, self, parcels,
-  other agents) and low-level actions (BFS `stepToward`, `pickup`, `putdown`,
-  `reportState`). Each strategy only implements *how it decides*:
-  - `base` — greedy priority: deliver → pick up here → go to nearest parcel → explore.
-  - `bt`   — the same priorities expressed as a small behaviour tree (selector/sequence).
-  - `bdi`  — scored desires → commit to the best intention → execute until done/invalid.
-
-## Setup
-
+Architecture
+Agents and dashboard are fully decoupled. The dashboard knows nothing about
+the SDK or the strategies — agents `POST` snapshots to it, and the browser
+receives them instantly via SSE (`/api/stream`). You can run the dashboard
+on another port/host, or not at all; agents keep working either way (reporting
+is fire-and-forget).
+Real-time UI. The browser holds one persistent SSE connection. Every agent
+POST triggers an immediate server push — no polling, no lag.
+Only active agents are shown. If an agent goes silent for `AGENT_TTL_MS`
+(default 5 s) it is dropped automatically. Leftovers from a previous run
+disappear on their own.
+One process, many agents. `main.js` reads `config.json` and spawns one
+agent per entry; each runs its own independent `loop()`.
+Agents are standalone classes. No inheritance — every agent implements
+`setup(token)` and `loop()` independently. `main.js` calls `agent.loop()`
+directly to guarantee correct `this` binding.
+Modular internals (`base_agent`). Logic is split across five focused files:
+`astar.js` (pathfinding), `WorldModel.js` (state), `ServerIO.js` (SDK calls),
+`Dashboard.js` (reporting), `GreedyAgent.js` (strategy).
+Setup
 ```bash
 npm install
-cp .env.example .env    # then edit HOST + your token(s)
 ```
-
-## Run
-
-Start the dashboard (separate module), then the agents:
-
+Edit `config.json` with your host, dashboard URL, and agent tokens:
+```json
+{
+  "host": "http://localhost:8080/",
+  "dashboardUrl": "http://localhost:3001",
+  "tickMs": 200,
+  "agents": [
+    {
+      "name": "Greedy_One",
+      "type": "base_agent",
+      "token": "YOUR_TOKEN_HERE"
+    }
+  ]
+}
+```
+Run
 ```bash
-npm run dashboard       # http://localhost:3001
-npm start               # spawns agents from .env
+npm run dashboard   # start dashboard → http://localhost:3001
+npm start           # spawn agents from config.json
 ```
-
-## Configuration (`.env`)
-
-```ini
-HOST="http://localhost:8080/"
-DASHBOARD_URL="http://localhost:3001"
-
-# Strategy: bt | bdi | base  (default bt)
-AGENT_TYPE=bt
-
-# Tokens — spawn ONE agent per token, in ANY of these formats:
-TOKEN=your_token                     # single
-# TOKENS=aaa, bbb, ccc               # comma-separated
-# TOKEN_1=aaa                        # numbered
-# TOKEN_2=bbb
-```
-
-Per-agent strategy overrides (optional): `AGENT_TYPES=bt,bdi,base` or
-`AGENT_TYPE_1=bt`, aligned with the token order.
-
-## Test
-
+Agent strategies
+key	description
+`base_agent`	Greedy: deliver → pick up here → go to nearest parcel → explore
+`bt`	Same priorities expressed as a behaviour tree (selector/sequence)
+`bdi`	Scored desires → commit to best intention → execute until done/invalid
+Test
 ```bash
-npm test    # mock-client smoke tests: grid/BFS, beliefs, all 3 strategies, dashboard REST
+npm test    # mock-client smoke tests: A*, WorldModel, all 3 strategies, dashboard REST
 ```
