@@ -1,22 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // BtAgent — Behaviour-Tree parcel-collection strategy.
 //
-// The tree is evaluated top-to-bottom every tick (fully reactive, no memory).
-// Each branch is a SEQUENCE (all must succeed) inside a root SELECTOR
-// (first branch that succeeds wins):
-//
-//   SELECTOR
-//   ├── SEQUENCE: carrying ∧ atDelivery  → putdown
-//   ├── SEQUENCE: carrying               → stepToward(nearestDelivery)
-//   ├── SEQUENCE: parcelHere             → pickup
-//   ├── SEQUENCE: freeParcels exist      → stepToward(nearestParcel)
-//   └── explore (always succeeds)
+// The tree (see RunningTree.js) is built from the generic Selector/Sequence/
+// Condition/Action nodes in BehaviourTree.js and evaluated top-to-bottom every
+// tick (fully reactive, no memory). This agent instance is the `ctx` passed to
+// each node — it exposes .world, .io, ._stepToward and .lastAction.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ServerIO }   from './ServerIO.js';
 import { WorldModel } from './WorldModel.js';
-import { bfs, nearestReachable } from './Pathfinding.js';
+import { bfs }        from './Pathfinding.js';
 import { report }     from './Dashboard.js';
+import { buildTree } from './RunningTree.js';
 
 const DEBUG = true;
 
@@ -31,6 +26,9 @@ export class BtAgent {
 
         this.world = new WorldModel();
         this.io    = null;   // created in setup() after connect
+        this.tree  = buildTree();
+        /** @type {string|null} set by tree leaves each tick, read back by _tick() */
+        this.lastAction = null;
     }
 
     // ── Lifecycle (called by main.js) ─────────────────────────────────────────
@@ -103,40 +101,13 @@ export class BtAgent {
     }
 
     // ── Behaviour Tree ────────────────────────────────────────────────────────
+    // Tree structure lives in RunningTree.js; this just ticks it with itself as
+    // context and reports back whatever action the winning leaf recorded.
 
     async _tick() {
-        // Branch 1: carrying + at delivery → put down
-        if (this.world.carrying().length > 0 && this.world.atDelivery()) {
-            const ok = await this.io.putdown();
-            return ok ? 'putdown at delivery' : 'putdown failed';
-        }
-
-        // Branch 2: carrying → walk to nearest delivery
-        if (this.world.carrying().length > 0) {
-            const del = nearestReachable(this.world.map, this.world.me, this.world.map.deliveryTiles, this.world.blockedTiles());
-            if (del) {
-                await this._stepToward(del.target);
-                return `deliver → (${del.target.x},${del.target.y}) dist=${del.dist}`;
-            }
-            return 'deliver (no route)';
-        }
-
-        // Branch 3: parcel on current tile → pick up
-        const here = this.world.parcelHere();
-        if (here) {
-            const ok = await this.io.pickup();
-            return ok ? `picked up ${here.id}` : `pickup failed ${here.id}`;
-        }
-
-        // Branch 4: free parcel exists → walk toward nearest
-        const nearest = nearestReachable(this.world.map, this.world.me, this.world.freeParcels(), this.world.blockedTiles());
-        if (nearest) {
-            await this._stepToward(nearest.target);
-            return `→ parcel (${nearest.target.x},${nearest.target.y}) dist=${nearest.dist}`;
-        }
-
-        // Branch 5: nothing to do → explore
-        return this._explore();
+        this.lastAction = null;
+        await this.tree.tick(this);
+        return this.lastAction;
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
@@ -145,22 +116,16 @@ export class BtAgent {
         const blocked = new Set(this.world.blockedTiles().map((b) => `${b.x},${b.y}`));
         blocked.delete(`${target.x},${target.y}`);
         const r = bfs(this.world.map, this.world.me, target, this.world.blockedTiles());
-        if (!r?.firstStep) return false;
+        if (!r?.firstStep) {
+            this.log('astar', `no path to (${target.x},${target.y})`);
+            return false;
+        }
         this.log('astar', `dist=${r.dist}  dir=${r.firstStep}`);
         const ok = await this.io.move(r.firstStep);
+        this.log('move', `dir=${r.firstStep} → ${ok ? 'ok' : 'REJECTED by server'}`);
         return Boolean(ok);
     }
 
-    async _explore() {
-        const spawners = this.world.map?.spawnerTiles ?? [];
-        if (spawners.length) {
-            const t = spawners[Math.floor(Math.random() * spawners.length)];
-            if (await this._stepToward(t)) return `explore → (${t.x},${t.y})`;
-        }
-        const dirs = ['up', 'down', 'left', 'right'];
-        await this.io.move(dirs[Math.floor(Math.random() * dirs.length)]);
-        return 'explore (random)';
-    }
 
     // ── Dashboard ─────────────────────────────────────────────────────────────
 

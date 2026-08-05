@@ -7,7 +7,8 @@ import { buildMap, TILE } from './MapModel.js';
 export class WorldModel {
     constructor() {
         this.map     = null;        // built once from the map event
-        this.config  = {};          // server config (CLOCK, penalties, …)
+        /** @type {any} server config (CLOCK, penalties, GAME.{map,parcels,player}, …) */
+        this.config  = {};
         this.me      = { id: null, name: null, x: 0, y: 0, score: 0 };
         /** @type {Map<string,object>} parcelId → parcel */
         this.parcels = new Map();
