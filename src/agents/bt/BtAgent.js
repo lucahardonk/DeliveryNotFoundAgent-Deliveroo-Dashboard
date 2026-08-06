@@ -9,7 +9,7 @@
 
 import { ServerIO }   from './ServerIO.js';
 import { WorldModel } from './WorldModel.js';
-import { bfs }        from './Pathfinding.js';
+import { aStar }      from './Pathfinding.js';
 import { report }     from './Dashboard.js';
 import { buildTree } from './RunningTree.js';
 
@@ -29,6 +29,15 @@ export class BtAgent {
         this.tree  = buildTree();
         /** @type {string|null} set by tree leaves each tick, read back by _tick() */
         this.lastAction = null;
+
+        // Consecutive _stepToward failures (no path, or move rejected by the
+        // server) — almost always another agent occupying the way. Recomputing
+        // A* every tick just picks the same blocked route again, so after a
+        // few failures we force one direction for a few ticks to physically
+        // break the deadlock instead.
+        this._stepFailCount   = 0;
+        this._forcedDir       = null;
+        this._forcedTicksLeft = 0;
     }
 
     // ── Lifecycle (called by main.js) ─────────────────────────────────────────
@@ -113,17 +122,57 @@ export class BtAgent {
     // ── Navigation ────────────────────────────────────────────────────────────
 
     async _stepToward(target) {
-        const blocked = new Set(this.world.blockedTiles().map((b) => `${b.x},${b.y}`));
-        blocked.delete(`${target.x},${target.y}`);
-        const r = bfs(this.world.map, this.world.me, target, this.world.blockedTiles());
+        const r = aStar(this.world.map, this.world.me, target, this.world.blockedTiles());
         if (!r?.firstStep) {
             this.log('astar', `no path to (${target.x},${target.y})`);
+            this._onStepFailure();
             return false;
         }
         this.log('astar', `dist=${r.dist}  dir=${r.firstStep}`);
         const ok = await this.io.move(r.firstStep);
         this.log('move', `dir=${r.firstStep} → ${ok ? 'ok' : 'REJECTED by server'}`);
+        if (ok) this._stepFailCount = 0;
+        else this._onStepFailure();
         return Boolean(ok);
+    }
+
+    /**
+     * True while a forced-direction override from a recent stuck detection is
+     * active. Checked by the tree's top-priority branch, ahead of any normal
+     * pathfinding, so the override actually gets consumed even on ticks where
+     * the usual leaves would find no reachable target at all and never touch
+     * movement (e.g. a delivery tile fully cut off by another agent).
+     */
+    hasForcedMove() {
+        return this._forcedTicksLeft > 0;
+    }
+
+    /** Runs one tick of the forced-direction override. Only call when hasForcedMove() is true. */
+    async _consumeForcedMove() {
+        const dir = this._forcedDir;
+        this._forcedTicksLeft--;
+        const ok = await this.io.move(dir);
+        this.log('move', `forced dir=${dir} (${this._forcedTicksLeft} left) → ${ok ? 'ok' : 'REJECTED by server'}`);
+        if (this._forcedTicksLeft === 0) this._forcedDir = null;
+        return Boolean(ok);
+    }
+
+    /**
+     * Registers a tick where movement toward a target failed or no reachable
+     * target existed at all — both usually mean another agent is in the way.
+     * After 3 consecutive calls, arms a forced-direction override (see
+     * hasForcedMove/_consumeForcedMove) for the next 3 ticks so the agent
+     * physically steps off the contested tile instead of recomputing the same
+     * blocked route forever.
+     */
+    _onStepFailure() {
+        this._stepFailCount++;
+        if (this._stepFailCount < 3) return;
+        this._stepFailCount = 0;
+        const dirs = ['up', 'down', 'left', 'right'];
+        this._forcedDir = dirs[Math.floor(Math.random() * dirs.length)];
+        this._forcedTicksLeft = 3;
+        this.log('stuck', `3 consecutive failures → forcing dir=${this._forcedDir} for 3 ticks`);
     }
 
 

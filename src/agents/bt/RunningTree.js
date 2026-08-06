@@ -6,15 +6,16 @@
 //   SELECTOR
 //   ├── SEQUENCE: carrying ∧ atDelivery    → putdown
 //   ├── SEQUENCE: parcelHere ∧ hasCapacity  → pickup (fires even mid-delivery, if there's room)
+//   ├── forcedMove: stuck-recovery override armed by _onStepFailure → consume it, skip pathfinding
 //   ├── SEQUENCE: carrying
-//   │     └── SELECTOR: detour worth it?    → stepToward(candidate parcel)
+//   │     └── SELECTOR: detour worth it?    → stepToward(best-value candidate parcel)
 //   │                    else               → stepToward(nearestDelivery)
-//   ├── SEQUENCE: freeParcels exist          → stepToward(nearestParcel)
+//   ├── SEQUENCE: freeParcels exist          → stepToward(best-value parcel, decay-adjusted — not just nearest)
 //   └── explore: nearest spawner tile, excluding the one you're on (always succeeds)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Status, Selector, Sequence, Condition, Action } from './BehaviourTree.js';
-import { nearestReachable } from './Pathfinding.js';
+import { nearestReachable, aStar } from './Pathfinding.js';
 
 // ── Config helpers ───────────────────────────────────────────────────────────
 // Read from world.config (the server's 'config' event), never hardcoded —
@@ -75,24 +76,72 @@ const pickup = new Action(async (ctx) => {
     return Status.SUCCESS;
 });
 
+// Highest priority: if a previous stuck-detection armed a forced-direction
+// override (see BtAgent._onStepFailure), consume it before any pathfinding
+// runs this tick — otherwise a fully-blocked leaf (e.g. delivery tile cut off
+// by another agent) would never touch movement and the override would sit
+// unused forever.
+const forcedMove = new Action(async (/** @type {import('./BtAgent.js').BtAgent} */ ctx) => {
+    if (!ctx.hasForcedMove()) return Status.FAILURE;
+    const ok = await ctx._consumeForcedMove();
+    ctx.lastAction = `forced move → ${ok ? 'ok' : 'rejected'}`;
+    return Status.SUCCESS;
+});
+
 const goToNearestDelivery = new Action(async (ctx) => {
     const del = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.map.deliveryTiles, ctx.world.blockedTiles());
     if (del) {
         await ctx._stepToward(del.target);
         ctx.lastAction = `deliver → (${del.target.x},${del.target.y}) dist=${del.dist}`;
     } else {
+        ctx._onStepFailure(); // no route at all — likely blocked by another agent
         ctx.lastAction = 'deliver (no route)';
     }
     return Status.SUCCESS;
 });
 
-const goToNearestParcel = new Action(async (ctx) => {
-    const nearest = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.freeParcels(), ctx.world.blockedTiles());
-    if (!nearest) return Status.FAILURE;
-    await ctx._stepToward(nearest.target);
-    ctx.lastAction = `→ parcel (${nearest.target.x},${nearest.target.y}) dist=${nearest.dist}`;
+const goToBestParcel = new Action(async (ctx) => {
+    const best = bestValuedParcel(ctx, ctx.world.freeParcels());
+    if (!best) return Status.FAILURE;
+    await ctx._stepToward(best.target);
+    ctx.lastAction = `→ parcel (${best.target.x},${best.target.y}) dist=${best.dist} value=${best.value}`;
     return Status.SUCCESS;
 });
+
+/**
+ * Best reachable parcel by expected reward at arrival (decay-adjusted), not
+ * just the closest one — a far high-reward parcel can beat a near one that's
+ * about to decay to nothing. Ties broken by shorter distance. Parcels that
+ * would be worth 0 on arrival are skipped entirely (not worth the trip).
+ * @param {import('./BtAgent.js').BtAgent} ctx
+ * @param {{x:number,y:number,reward:number}[]} parcels
+ * @returns {{target:{x:number,y:number,reward:number}, dist:number, value:number}|null}
+ */
+function bestValuedParcel(ctx, parcels) {
+    const map = ctx.world.map;
+    if (!map) return null;
+
+    const decayMs = decayIntervalMs(ctx);
+    const mvMs    = movementMs(ctx);
+    const blocked = ctx.world.blockedTiles();
+
+    let best = null;
+    let anyReachable = false;
+    for (const p of parcels) {
+        const r = aStar(map, ctx.world.me, p, blocked);
+        if (!r) continue;
+        anyReachable = true;
+        const value = valueAtArrival([p], r.dist * mvMs, decayMs);
+        if (value <= 0) continue;
+        if (!best || value > best.value || (value === best.value && r.dist < best.dist)) {
+            best = { target: p, dist: r.dist, value };
+        }
+    }
+    // Parcels exist but every one is unreachable (not just low-value) —
+    // that's blockage, not "nothing to do", so it feeds the stuck detector.
+    if (!best && parcels.length > 0 && !anyReachable) ctx._onStepFailure();
+    return best;
+}
 
 // Compares "deliver now" vs "detour to grab the nearest free parcel, then deliver",
 // both valued at arrival time (reward decays 1/tick while travelling — see
@@ -101,7 +150,7 @@ const goToNearestParcel = new Action(async (ctx) => {
 const considerDetour = new Action(async (ctx) => {
     if (!hasCapacityFor(ctx)) return Status.FAILURE;
 
-    const candidate = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.freeParcels(), ctx.world.blockedTiles());
+    const candidate = bestValuedParcel(ctx, ctx.world.freeParcels());
     if (!candidate) return Status.FAILURE;
 
     const directDelivery       = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.map.deliveryTiles, ctx.world.blockedTiles());
@@ -162,11 +211,12 @@ const explore = new Action(async (ctx) => {
 export const baseBehaviour = new Selector([
     new Sequence([isCarrying, isAtDelivery, putdown]),
     new Sequence([isParcelHere, hasCapacity, pickup]),
+    forcedMove, // consume a stuck-recovery override before any pathfinding, if one is armed
     new Sequence([
         isCarrying,
         new Selector([considerDetour, goToNearestDelivery]), // detour if worth it, else deliver directly
     ]),
-    new Sequence([hasFreeParcels, goToNearestParcel]),
+    new Sequence([hasFreeParcels, goToBestParcel]),
     explore,
 ]);
 

@@ -59,19 +59,34 @@ for (const agentConfig of activeAgents) {
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
-// All active agents tick in parallel every tickMs.
+// Each agent runs its own independent loop instead of a shared Promise.all
+// round — otherwise every agent's next decision waits for the slowest
+// agent's current action to finish, even when it had nothing to do.
+//
+// `io.move/pickup/putdown` already resolve only once the server confirms the
+// action completed (real movement_duration, not just an ack), so a tick that
+// did real work already took real time. tickMs is therefore just a floor: we
+// only sleep the leftover time, instead of always sleeping the full amount
+// on top of a wait that already happened. That leftover-only sleep still
+// protects against a tight spin in the rare tick that does no server I/O at
+// all (e.g. every leaf failing synchronously with no reachable target).
 // A loop error in one agent is logged but does NOT crash the others.
 
 console.log('🔁 All agents running. Press Ctrl+C to stop.\n');
 
-for (;;) {
-    await Promise.all(
-        agents.map((agent) =>
-            agent.loop().catch((err) =>
-                console.error(`❌ [${agent.name}] loop error:`, err?.message ?? err),
-            ),
-        ),
-    );
+const tickMs = config.tickMs ?? 200;
 
-    await sleep(config.tickMs ?? 200);
+async function runAgentLoop(agent) {
+    for (;;) {
+        const startedAt = Date.now();
+        try {
+            await agent.loop();
+        } catch (err) {
+            console.error(`❌ [${agent.name}] loop error:`, err?.message ?? err);
+        }
+        const remaining = tickMs - (Date.now() - startedAt);
+        if (remaining > 0) await sleep(remaining);
+    }
 }
+
+agents.forEach(runAgentLoop);
