@@ -10,12 +10,16 @@
 //   ├── SEQUENCE: carrying
 //   │     └── SELECTOR: detour worth it?    → stepToward(best-value candidate parcel)
 //   │                    else               → stepToward(nearestDelivery)
-//   ├── SEQUENCE: freeParcels exist          → stepToward(best-value parcel, decay-adjusted — not just nearest)
-//   └── explore: nearest spawner tile, excluding the one you're on (always succeeds)
+//   ├── SEQUENCE: freeParcels exist          → stepToward(best-value parcel, decay-adjusted — not just nearest,
+//   │                                            skips tiles that can't reach a productive delivery↔spawner cycle)
+//   └── explore: persisted target ≥ exploreRadius away, safe (leads to a productive cycle),
+//                clear of sensed rivals, biased away from sensed teammates (always succeeds)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Status, Selector, Sequence, Condition, Action } from './BehaviourTree.js';
 import { nearestReachable, aStar } from './Pathfinding.js';
+import { isSafeTile, safeRandomDirection } from './MapRegions.js';
+import { pickExploreTarget } from './ExploreTarget.js';
 
 // ── Config helpers ───────────────────────────────────────────────────────────
 // Read from world.config (the server's 'config' event), never hardcoded —
@@ -89,7 +93,7 @@ const forcedMove = new Action(async (/** @type {import('./BtAgent.js').BtAgent} 
 });
 
 const goToNearestDelivery = new Action(async (ctx) => {
-    const del = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.map.deliveryTiles, ctx.world.blockedTiles());
+    const del = nearestReachable(ctx.world.map, ctx.world.me, safeDeliveryPool(ctx), ctx.world.blockedTiles());
     if (del) {
         await ctx._stepToward(del.target);
         ctx.lastAction = `deliver → (${del.target.x},${del.target.y}) dist=${del.dist}`;
@@ -125,9 +129,15 @@ function bestValuedParcel(ctx, parcels) {
     const mvMs    = movementMs(ctx);
     const blocked = ctx.world.blockedTiles();
 
+    // Never target a parcel sitting somewhere that can't reach a productive
+    // delivery↔spawner cycle afterward (e.g. a pocket that only has delivery
+    // tiles, with no way back to any spawner) — better to leave it and fall
+    // through to explore than get permanently stuck holding it.
+    const safeParcels = parcels.filter((p) => isSafeTile(map, p.x, p.y));
+
     let best = null;
     let anyReachable = false;
-    for (const p of parcels) {
+    for (const p of safeParcels) {
         const r = aStar(map, ctx.world.me, p, blocked);
         if (!r) continue;
         anyReachable = true;
@@ -137,9 +147,11 @@ function bestValuedParcel(ctx, parcels) {
             best = { target: p, dist: r.dist, value };
         }
     }
-    // Parcels exist but every one is unreachable (not just low-value) —
+    // Safe parcels exist but every one is unreachable (not just low-value) —
     // that's blockage, not "nothing to do", so it feeds the stuck detector.
-    if (!best && parcels.length > 0 && !anyReachable) ctx._onStepFailure();
+    // (Parcels excluded only by the safety filter are normal decision-making,
+    // not a stuck condition.)
+    if (!best && safeParcels.length > 0 && !anyReachable) ctx._onStepFailure();
     return best;
 }
 
@@ -153,8 +165,9 @@ const considerDetour = new Action(async (ctx) => {
     const candidate = bestValuedParcel(ctx, ctx.world.freeParcels());
     if (!candidate) return Status.FAILURE;
 
-    const directDelivery       = nearestReachable(ctx.world.map, ctx.world.me, ctx.world.map.deliveryTiles, ctx.world.blockedTiles());
-    const deliveryFromCandidate = nearestReachable(ctx.world.map, candidate.target, ctx.world.map.deliveryTiles, ctx.world.blockedTiles());
+    const deliveryPool = safeDeliveryPool(ctx);
+    const directDelivery       = nearestReachable(ctx.world.map, ctx.world.me, deliveryPool, ctx.world.blockedTiles());
+    const deliveryFromCandidate = nearestReachable(ctx.world.map, candidate.target, deliveryPool, ctx.world.blockedTiles());
     if (!directDelivery || !deliveryFromCandidate) return Status.FAILURE;
 
     const decayMs = decayIntervalMs(ctx);
@@ -179,24 +192,51 @@ function hasCapacityFor(ctx) {
     return ctx.world.carrying().length < getCapacity(ctx);
 }
 
-// Heads for the nearest spawner tile, excluding the one you're standing on.
-// Since explore only ever runs when no free parcel is known (branch 4 would
-// otherwise win), every spawner is "empty" by the time you reach it — so
-// dropping the current tile from the candidates is enough to make "nearest"
-// naturally advance to the next-nearest spawner once you arrive, with no
-// need to remember which ones were already visited.
+/**
+ * Delivery tiles, preferring ones that are actually safe (part of/leading to
+ * a productive delivery↔spawner cycle) over ones that are merely reachable —
+ * falls back to every delivery tile only if none are safe (still carrying a
+ * parcel means it must be delivered somewhere, even into an otherwise-unsafe
+ * spot, rather than never delivered at all).
+ * @param {import('./BtAgent.js').BtAgent} ctx
+ */
+function safeDeliveryPool(ctx) {
+    const map = ctx.world.map;
+    if (!map) return [];
+    const safe = map.deliveryTiles.filter((/** @type {{x:number,y:number}} */ t) => isSafeTile(map, t.x, t.y));
+    return safe.length ? safe : map.deliveryTiles;
+}
+
+// Commits to a target (ctx.exploreTarget, persisted on the agent across
+// ticks) chosen by ExploreTarget.pickExploreTarget — at least exploreRadius
+// tiles away, skipping unsafe (undeliverable) pockets and rival-occupied
+// clusters, biased away from sensed teammates. Keeps walking toward it until
+// reached, unwalkable, or a move fails, then re-picks. This is the one leaf
+// in the tree that carries state between ticks (see BtAgent.exploreTarget).
 const explore = new Action(async (ctx) => {
-    const spawners = (ctx.world.map?.spawnerTiles ?? [])
-        .filter((/** @type {{x:number,y:number}} */ t) => t.x !== ctx.world.me.x || t.y !== ctx.world.me.y);
-    const nearest = nearestReachable(ctx.world.map, ctx.world.me, spawners, ctx.world.blockedTiles());
-    if (nearest) {
-        await ctx._stepToward(nearest.target);
-        ctx.lastAction = `explore → spawner (${nearest.target.x},${nearest.target.y})`;
+    const t = ctx.exploreTarget;
+    const stale = !t
+        || (ctx.world.me.x === t.x && ctx.world.me.y === t.y)
+        || !ctx.world.walkable(t.x, t.y);
+
+    if (stale) ctx.exploreTarget = pickExploreTarget(ctx, ctx.exploreRadius, ctx.enemyAvoidRadius);
+
+    if (!ctx.exploreTarget) {
+        // No target found anywhere (fully boxed in / degenerate map) — last
+        // resort single random step: respects one-way tiles and prefers a
+        // neighbour that still leads to a productive delivery↔spawner cycle.
+        if (ctx.world.map) {
+            const dir = safeRandomDirection(ctx.world.map, ctx.world.me, ctx.world.blockedTiles());
+            await ctx.io.move(dir);
+        }
+        ctx.lastAction = 'explore (random — no target found)';
         return Status.SUCCESS;
     }
-    const dirs = ['up', 'down', 'left', 'right'];
-    await ctx.io.move(dirs[Math.floor(Math.random() * dirs.length)]);
-    ctx.lastAction = 'explore (random)';
+
+    const target = ctx.exploreTarget; // capture before _stepToward may clear it below
+    const moved  = await ctx._stepToward(target);
+    if (!moved) ctx.exploreTarget = null; // drop it; re-pick next tick
+    ctx.lastAction = `explore → (${target.x},${target.y})`;
     return Status.SUCCESS;
 });
 

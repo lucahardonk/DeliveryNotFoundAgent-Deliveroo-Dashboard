@@ -1,4 +1,5 @@
 import { buildMap, TILE } from './MapModel.js';
+import { computeRegions } from './MapRegions.js';
 
 /**
  * Single source of truth for everything the agent knows about the world.
@@ -9,7 +10,7 @@ export class WorldModel {
         this.map     = null;        // built once from the map event
         /** @type {any} server config (CLOCK, penalties, GAME.{map,parcels,player}, …) */
         this.config  = {};
-        this.me      = { id: null, name: null, x: 0, y: 0, score: 0 };
+        this.me      = { id: null, name: null, x: 0, y: 0, score: 0, teamId: null, teamName: null };
         /** @type {Map<string,object>} parcelId → parcel */
         this.parcels = new Map();
         /** @type {object[]} other agents currently sensed */
@@ -20,15 +21,18 @@ export class WorldModel {
 
     buildMap(rawTiles) {
         this.map = buildMap(rawTiles);
+        this.map.regions = computeRegions(this.map);
     }
 
     updateMe(you) {
         if (!you) return;
-        this.me.id    = you.id;
-        this.me.name  = you.name;
-        this.me.x     = Math.round(you.x);
-        this.me.y     = Math.round(you.y);
-        this.me.score = you.score ?? this.me.score;
+        this.me.id       = you.id;
+        this.me.name     = you.name;
+        this.me.x        = Math.round(you.x);
+        this.me.y        = Math.round(you.y);
+        this.me.score    = you.score ?? this.me.score;
+        this.me.teamId   = you.teamId   ?? this.me.teamId;
+        this.me.teamName = you.teamName ?? this.me.teamName;
     }
 
     updateParcels(sensed) {
@@ -49,6 +53,10 @@ export class WorldModel {
     carrying()     { return [...this.parcels.values()].filter((p) => p.carriedBy === this.me.id); }
     freeParcels()  { return [...this.parcels.values()].filter((p) => !p.carriedBy); }
     blockedTiles() { return this.others.map((a) => ({ x: Math.round(a.x), y: Math.round(a.y) })); }
+
+    // Unknown teamId is treated as a rival — the safer default for exclusion.
+    teammates() { return this.others.filter((a) => a.teamId != null && a.teamId === this.me.teamId); }
+    rivals()    { return this.others.filter((a) => a.teamId == null || a.teamId !== this.me.teamId); }
 
     atDelivery() {
         return this.map?.tiles?.[this.me.x]?.[this.me.y] === TILE.delivery;

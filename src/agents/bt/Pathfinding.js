@@ -1,13 +1,21 @@
-import { isWalkable } from './MapModel.js';
+import { isWalkable, allowedExitDirection } from './MapModel.js';
 
-/** @returns {{ x, y, dir }[]} walkable orthogonal neighbours, excluding blocked tiles. */
-function neighbors(map, { x, y }, blocked) {
-    return [
+/**
+ * Walkable orthogonal neighbours, excluding blocked tiles. If (x,y) is a
+ * one-way tile, only the neighbour in its single legal exit direction is
+ * kept — entering is unrestricted, but there is exactly one way out.
+ * @returns {{ x, y, dir }[]}
+ */
+export function neighbors(map, { x, y }, blocked) {
+    const candidates = [
         { x: x + 1, y, dir: 'right' },
         { x: x - 1, y, dir: 'left'  },
         { x, y: y + 1, dir: 'up'    },
         { x, y: y - 1, dir: 'down'  },
     ].filter((c) => isWalkable(map, c.x, c.y) && !blocked.has(`${c.x},${c.y}`));
+
+    const allowedDir = allowedExitDirection(map, x, y);
+    return allowedDir ? candidates.filter((c) => c.dir === allowedDir) : candidates;
 }
 
 /**
@@ -43,7 +51,7 @@ export function bfs(map, start, goal, blockedTiles = []) {
  * @param {{x:number,y:number}} a
  * @param {{x:number,y:number}} b
  */
-function manhattan(a, b) {
+export function manhattan(a, b) {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
