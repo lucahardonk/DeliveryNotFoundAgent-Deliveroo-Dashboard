@@ -251,7 +251,7 @@ const explore = new Action(async (ctx) => {
 export const baseBehaviour = new Selector([
     new Sequence([isCarrying, isAtDelivery, putdown]),
     new Sequence([isParcelHere, hasCapacity, pickup]),
-    forcedMove, // consume a stuck-recovery override before any pathfinding, if one is armed
+    forcedMove, // consume a stuck-recovery override before any pathfinding
     new Sequence([
         isCarrying,
         new Selector([considerDetour, goToNearestDelivery]), // detour if worth it, else deliver directly
