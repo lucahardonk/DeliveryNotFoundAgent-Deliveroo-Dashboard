@@ -1,15 +1,16 @@
 import fs from 'node:fs/promises';
-import { GreedyAgent } from './src/agents/base_agent/GreedyAgent.js';
-import { BtAgent }     from './src/agents/bt/BtAgent.js';
-import { BdiAgent } from './src/agents/bdi/BdiAgent.js';
-
-// ── Registry ──────────────────────────────────────────────────────────────────
-// Add new agent types here as you build them.
+import { GreedyAgent }     from './src/agents/base_agent/GreedyAgent.js';
+import { BtAgent }         from './src/agents/bt/BtAgent.js';
+import { BdiAgent }        from './src/agents/bdi/BdiAgent.js';
+import { BdiLlmTestAgent } from './src/agents/bdi_llm_test/BdiLlmTestAgent.js';
+import { LlmAgent }        from './src/agents/LLM_agent/LlmAgent.js';
 
 const REGISTRY = {
-    base_agent: GreedyAgent,
-    bt_agent:   BtAgent,
-    bdi_agent:  BdiAgent,
+    base_agent:    GreedyAgent,
+    bt_agent:      BtAgent,
+    bdi_agent:     BdiAgent,
+    bdi_llm_test:  BdiLlmTestAgent,
+    llm_agent:     LlmAgent,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

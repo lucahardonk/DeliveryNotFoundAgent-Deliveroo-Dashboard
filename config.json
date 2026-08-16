@@ -23,15 +23,21 @@
     },
     {
       "name": "agent4",
-      "type": "bt_agent",
+      "type": "bdi_llm_test",
       "enabled": true,
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImY3OTE2YyIsIm5hbWUiOiJhZ2VudDQiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgxOTczNX0.1ACBwDfIwwExEj_gZbTI2tsT10hnMaaggPcBRdPGkX8"
     },
     {
       "name": "BT_One",
       "type": "bt_agent",
-      "enabled": true,
+      "enabled": false,
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImY2Y2FmMiIsIm5hbWUiOiJidF9vbmUiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgyNTMwMX0._862-dupRQXUWj4xCPPdTZGKyUP2JBAE6tcuug-J6dQ"
+    },
+    {
+      "name": "LLM_Agent",
+      "type": "llm_agent",
+      "enabled": true,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImMxN2YzMSIsIm5hbWUiOiJsbG0iLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NjcyMDEwN30.oE1KabJ5BuSrb7U5yqPE4VGlaCqp8-Vde0Za-jW_uqY"
     }
   ]
 }
