@@ -19,11 +19,6 @@ import { astar, direction } from './astar.js';
 // With value 10 and the `>` condition below, delivery starts at 11 parcels.
 const MAX_PARCELS_BEFORE_DELIVERY = 10;
 
-// When idle, explore a random reachable target at least 11 tiles away.
-const EXPLORATION_MIN_RADIUS = 11;
-const EXPLORATION_MAX_RADIUS = 15;
-const EXPLORATION_ATTEMPTS = 200;
-
 // ── Debug ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -83,41 +78,55 @@ export function shouldDeliverNormally(carrying, freeParcels) {
 }
 
 /**
- * Selects a random walkable and reachable exploration target.
+ * Selects a random walkable and reachable tile anywhere on the map.
  *
- * The target is chosen between EXPLORATION_MIN_RADIUS and
- * EXPLORATION_MAX_RADIUS tiles from the current position.
+ * The function takes all known non-wall map tiles from `walkableTiles`,
+ * shuffles them, then returns the first one that is reachable using A*.
  *
  * @param {object} agent
  * @returns {{ x: number, y: number } | null}
  */
 export function randomExplorationTarget(agent) {
+    const walkableTiles = agent.world.map?.walkableTiles ?? [];
     const blocked = blockedCells(agent);
-    const startX = Math.round(agent.world.me.x);
-    const startY = Math.round(agent.world.me.y);
 
-    for (let attempt = 0; attempt < EXPLORATION_ATTEMPTS; attempt += 1) {
-        const angle = Math.random() * Math.PI * 2;
+    if (walkableTiles.length === 0) {
+        //log(agent.name, 'explore', 'map has no walkable tiles');
+        return null;
+    }
 
-        const radius =
-            EXPLORATION_MIN_RADIUS +
-            Math.random() * (EXPLORATION_MAX_RADIUS - EXPLORATION_MIN_RADIUS);
+    // Copy the map list before shuffling: do not alter WorldModel's map data.
+    const candidates = [...walkableTiles];
 
-        const target = {
-            x: Math.round(startX + Math.cos(angle) * radius),
-            y: Math.round(startY + Math.sin(angle) * radius),
-        };
+    // Fisher-Yates shuffle: inspect map tiles in a different random order
+    // every time the agent needs to explore.
+    for (let index = candidates.length - 1; index > 0; index -= 1) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
 
-        // Ignore walls, non-map cells, or occupied cells.
-        if (!agent.world.walkable(target.x, target.y)) {
+        [candidates[index], candidates[randomIndex]] = [
+            candidates[randomIndex],
+            candidates[index],
+        ];
+    }
+
+    const currentX = Math.round(agent.world.me.x);
+    const currentY = Math.round(agent.world.me.y);
+    const currentKey = `${currentX},${currentY}`;
+
+    // Return the first randomly selected tile that the agent can reach.
+    for (const target of candidates) {
+        const targetKey = `${target.x},${target.y}`;
+
+        // Do not explore toward the tile on which the agent already stands.
+        if (targetKey === currentKey) {
             continue;
         }
 
-        if (blocked.has(`${target.x},${target.y}`)) {
+        // Do not intentionally choose another visible agent's position.
+        if (blocked.has(targetKey)) {
             continue;
         }
 
-        // Confirm that A* can actually reach the random target.
         const path = astar(
             agent.world.me,
             target,
@@ -126,17 +135,13 @@ export function randomExplorationTarget(agent) {
         );
 
         if (path && path.length > 0) {
-            log(
-                agent.name,
-                'explore',
-                `target=(${target.x},${target.y}) pathLen=${path.length}`,
-            );
-
-            return target;
+            //log(agent.name,'explore',`random target=(${target.x},${target.y}) pathLen=${path.length}`,);
+            return { x: target.x, y: target.y };
         }
     }
 
-    log(agent.name, 'explore', 'no reachable random exploration target found');
+    // This should happen only if no other walkable map tile is reachable.
+    //log(agent.name, 'explore', 'no reachable walkable map tile found');
     return null;
 }
 
@@ -156,16 +161,12 @@ export function normalTarget(agent) {
     const carrying = agent.world.carrying();
     const freeParcels = agent.world.freeParcels();
 
-    // Deliver at 11+ parcels, or when there is nothing else visible to collect.
+    // Deliver at 11+ parcels, or if there are no visible parcels left to get.
     if (shouldDeliverNormally(carrying, freeParcels)) {
         const delivery = nearest(agent, agent.world.map.deliveryTiles);
 
         if (delivery) {
-            log(
-                agent.name,
-                'think',
-                `deliver ${carrying.length} parcel(s) → (${delivery.x},${delivery.y})`,
-            );
+            //log(agent.name,'think',`deliver ${carrying.length} parcel(s) → (${delivery.x},${delivery.y})`,);
         }
 
         return delivery;
@@ -175,17 +176,12 @@ export function normalTarget(agent) {
     const parcel = nearest(agent, freeParcels);
 
     if (parcel) {
-        log(
-            agent.name,
-            'think',
-            `collect parcel → (${parcel.x},${parcel.y}); carrying=${carrying.length}`,
-        );
-
+        //log( agent.name,'think', `collect parcel → (${parcel.x},${parcel.y}); carrying=${carrying.length}`,);
         return parcel;
     }
 
-    // Empty-handed and no parcel is currently visible: search elsewhere.
-    log(agent.name, 'think', 'no parcels visible — exploring');
+    // Empty-handed and no parcel is currently visible: explore the map.
+    //log(agent.name, 'think', 'no parcels visible — exploring');
     return randomExplorationTarget(agent);
 }
 
@@ -193,7 +189,7 @@ export function normalTarget(agent) {
  * Main decision entry point used by LlmAgent.js.
  *
  * Later, this can select an LLM/Hermes mission strategy instead of
- * normalTarget(agent), while the orchestration code stays unchanged.
+ * normalTarget(agent), while LlmAgent.js remains unchanged.
  *
  * @param {object} agent
  * @returns {{ x: number, y: number } | null}
@@ -205,7 +201,7 @@ export function think(agent) {
 // ── Target selection and pathfinding ──────────────────────────────────────────
 
 /**
- * Builds a set of occupied cells from other agents.
+ * Builds a set of cells occupied by other visible agents.
  *
  * @param {object} agent
  * @returns {Set<string>}
@@ -260,8 +256,8 @@ export function nearest(agent, goals) {
 export async function stepToward(agent, target) {
     const blocked = blockedCells(agent);
 
-    // A goal itself can be occupied and still be a valid destination,
-    // such as a parcel tile or a delivery tile.
+    // A target may be occupied and still be a valid destination:
+    // for example, a parcel tile or a delivery tile.
     blocked.delete(`${target.x},${target.y}`);
 
     const path = astar(
@@ -272,18 +268,14 @@ export async function stepToward(agent, target) {
     );
 
     if (!path || path.length === 0) {
-        log(agent.name, 'astar', `no path to (${target.x},${target.y})`);
+        //log(agent.name, 'astar', `no path to (${target.x},${target.y})`);
         return false;
     }
 
     const next = path[0];
     const moveDirection = direction(agent.world.me, next);
 
-    log(
-        agent.name,
-        'move',
-        `dir=${moveDirection} → next=(${next.x},${next.y}) pathLen=${path.length}`,
-    );
+    //log(agent.name,'move', `dir=${moveDirection} → next=(${next.x},${next.y}) pathLen=${path.length}`,);
 
     return Boolean(await agent.io.doMove(moveDirection));
 }
@@ -293,8 +285,8 @@ export async function stepToward(agent, target) {
 /**
  * Executes an action available on the current tile.
  *
- * Pickup always has priority. This means that if the agent walks onto a
- * delivery tile containing a free parcel, it picks up that parcel first.
+ * Pickup always has priority. If the agent is on a delivery tile that also
+ * contains a free parcel, it collects the parcel before trying to put down.
  *
  * @param {object} agent
  * @returns {Promise<boolean>} true when an action succeeds
@@ -303,14 +295,14 @@ export async function actOnTile(agent) {
     // Pick up every free parcel encountered while navigating.
     if (agent.world.parcelHere()) {
         const ok = await agent.io.doPickup();
-        log(agent.name, 'act', `pickup → ${ok ? 'ok' : 'fail'}`);
+        //log(agent.name, 'act', `pickup → ${ok ? 'ok' : 'fail'}`);
         return Boolean(ok);
     }
 
-    // Deliver only if there is no parcel under the agent.
+    // Deliver only if there is no free parcel on this tile.
     if (agent.world.carrying().length > 0 && agent.world.atDelivery()) {
         const ok = await agent.io.doPutdown();
-        log(agent.name, 'act', `putdown → ${ok ? 'ok' : 'fail'}`);
+        //log(agent.name, 'act', `putdown → ${ok ? 'ok' : 'fail'}`);
         return Boolean(ok);
     }
 
