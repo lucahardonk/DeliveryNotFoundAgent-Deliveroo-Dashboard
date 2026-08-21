@@ -2,9 +2,9 @@ import { WorldModel } from './WorldModel.js';
 import { ServerIO }   from './ServerIO.js';
 import { startWebChat } from './webchat.js';
 import { queryOllama, OLLAMA_NUM_CTX } from './ollama.js';
-import { runTool } from './tools.js';
 import { buildPrompt } from './promptBuilder.js';
 import { DjsConnect } from '@unitn-asa/deliveroo-js-sdk/client';
+import { runPlan } from './parser.js';
 import {
     log,
     printWorldState,
@@ -80,73 +80,66 @@ export class LlmAgent {
      * calls in order, and releases the agent as soon as the whole turn
      * (including all resulting tool calls) has finished.
      */
-    process_input_prompt() {
-        // Don't start a new turn while one is already in flight, or if there's
-        // nothing queued to process.
-        if (this.llmModeBusy || this.inputQueue.length === 0) return;
-
-        const text = this.inputQueue.shift();
-        console.log(`[${this.name}][prompt] ${text}`);
-
-        // ── Enter LLM_MODE: freeze normal loop behavior until this resolves ──
-        this.state = STATE.LLM_MODE;
-        this.llmModeBusy = true;
-        log(this.name, 'llm_mode', 'entering LLM_MODE — waiting for Ollama response');
-
-        // Build the structured context payload (tools, world snapshot, memory, chat).
-        const payload = buildPrompt(this, text);
-        console.log(`[${this.name}][payload]`, JSON.stringify(payload, null, 2));
-
-        queryOllama(JSON.stringify(payload))
-            .then(async ({ message, promptTokens, replyTokens }) => {
-                // ── Context usage logging ──
-                const totalTokens = promptTokens + replyTokens;
-                log(this.name, 'context', `prompt=${promptTokens} reply=${replyTokens} total=${totalTokens}/${OLLAMA_NUM_CTX}`);
-
-                // Always surface any free-text reasoning/explanation from the
-                // model, even when it also planned tool calls.
-                if (message.content) {
-                    console.log(`[${this.name}][ollama][text] ${message.content}`);
-                }
-
-                const calls = message.tool_calls ?? [];
-
-                // ── Case 1: no tool calls — treat as a plain chat reply ──
-                if (calls.length === 0) {
-                    this.sendReply(message.content);
-                    return;
-                }
-
-                // ── Case 2: one or more tool calls planned — log the full queue first ──
-                const queueSummary = calls
-                    .map((c, i) => `${i + 1}. ${c.function.name}(${JSON.stringify(c.function.arguments)})`)
-                    .join(' → ');
-                console.log(`[${this.name}][queue] ${queueSummary}`);
-                console.log(`[${this.name}][ollama] planned ${calls.length} tool call(s)`);
-
-                // Execute each planned tool call sequentially, reporting results
-                // as they complete.
-                for (let i = 0; i < calls.length; i += 1) {
-                    const { name, arguments: args } = calls[i].function;
-                    console.log(`[${this.name}][tool ${i + 1}/${calls.length}] ${name}(${JSON.stringify(args)}) → running…`);
-
-                    const result = await runTool(this, calls[i].function);
-
-                    const status = result.success ? 'SUCCESS' : 'FAILURE';
-                    console.log(`[${this.name}][tool ${i + 1}/${calls.length}] ${name} → ${status}: ${result.message}`);
-                    this.sendReply(`[${status}] ${name}: ${result.message}`);
-                }
-            })
-            .catch((e) => {
-                console.error(`[${this.name}][ollama] error:`, e.message);
-                this.sendReply(`[error: ${e.message}]`);
-            })
-            .finally(() => {
-                // ── Exit LLM_MODE regardless of success/failure ──
-                this.llmModeBusy = false;
-                this.state = STATE.IDLE;
-                log(this.name, 'llm_mode', 'response delivered — releasing agent');
-            });
+    process_input_prompt() {  
+        // Don't start a new turn while one is already in flight, or if there's  
+        // nothing queued to process.  
+        if (this.llmModeBusy || this.inputQueue.length === 0) return;  
+    
+        const text = this.inputQueue.shift();  
+        console.log(`[${this.name}][prompt] ${text}`);  
+    
+        // ── Enter LLM_MODE: freeze normal loop behavior until this resolves ──  
+        this.state = STATE.LLM_MODE;  
+        this.llmModeBusy = true;  
+        log(this.name, 'llm_mode', 'entering LLM_MODE — waiting for Ollama response');  
+    
+        // Build the structured context payload (tools, world snapshot, memory, chat).  
+        const payload = buildPrompt(this, text);  
+        console.log(`[${this.name}][payload]`, JSON.stringify(payload, null, 2));  
+    
+        queryOllama(JSON.stringify(payload))  
+            .then(async ({ message, promptTokens, replyTokens }) => {  
+                // ── Context usage logging ──  
+                const totalTokens = promptTokens + replyTokens;  
+                log(this.name, 'context', `prompt=${promptTokens} reply=${replyTokens} total=${totalTokens}/${OLLAMA_NUM_CTX}`);  
+    
+                const rawText = message.content ?? '';  
+                console.log(`[${this.name}][ollama][raw] ${rawText}`);  
+    
+                // ── Parse the LLM's JSON output: { plan: [...], chat: "..." } ──  
+                let response;  
+                try {  
+                    response = JSON.parse(rawText);  
+                } catch (e) {  
+                    console.error(`[${this.name}][ollama] invalid JSON: ${e.message}`);  
+                    this.sendReply(`[error: model did not return valid JSON]`);  
+                    return;  
+                }  
+    
+                if (!response || !Array.isArray(response.plan)) {  
+                    console.warn(`[${this.name}][ollama] response missing valid "plan" array`);  
+                    if (response?.chat) this.sendReply(response.chat);  
+                    return;  
+                }  
+    
+                // ── Execute the plan via parser.js (handles tool / if / loop steps,  
+                //    including evaluateCondition checks inside loops), and it will  
+                //    also send response.chat via this.sendReply internally. ──  
+                const { results } = await runPlan(this, response);  
+    
+                const failed = results.filter((r) => !r.success);  
+                console.log(`[${this.name}][plan] ${results.length} step(s) executed, ${failed.length} failed`);  
+            })  
+            .catch((e) => {  
+                console.error(`[${this.name}][ollama] error:`, e.message);  
+                this.sendReply(`[error: ${e.message}]`);  
+            })  
+            .finally(() => {  
+                // ── Exit LLM_MODE regardless of success/failure ──  
+                this.llmModeBusy = false;  
+                this.state = STATE.IDLE;  
+                log(this.name, 'llm_mode', 'response delivered — releasing agent');  
+            });  
     }
 
     isInLlmMode() {
@@ -166,7 +159,7 @@ export class LlmAgent {
             return;
         }
 
-        printWorldState(this);
+        //printWorldState(this);
 
         if (await actOnTile(this)) {
             this.target = null;

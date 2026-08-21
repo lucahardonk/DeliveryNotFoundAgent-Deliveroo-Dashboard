@@ -29,8 +29,10 @@ const MAX_PARCELS_BEFORE_DELIVERY = 10;
  * @param {string} msg
  * @returns {void}
  */
+
 export function log(name, tag, msg) {
-    console.log(`[${name}][${tag}] ${msg}`);
+    const ts = new Date().toISOString();
+    console.log(`[${ts}][${name}][${tag}] ${msg}`);
 }
 
 // ── World-state printing ──────────────────────────────────────────────────────

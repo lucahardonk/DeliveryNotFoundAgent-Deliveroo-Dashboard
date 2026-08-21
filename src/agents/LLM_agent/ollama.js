@@ -8,19 +8,20 @@ export const OLLAMA_TEMPERATURE = Number(process.env.OLLAMA_TEMPERATURE ?? 0.9);
 
 /**
  * Sends a prompt to the local Ollama server and returns the model's reply.
+ * The model is expected to respond with a JSON string (in message.content)
+ * shaped as { plan: [...], chat: "..." } — parsed downstream by parser.js.
  *
  * @param {string} text
- * @param {object[]} [tools]
  * @returns {Promise<{ message: object, promptTokens: number, replyTokens: number }>}
  */
-export async function queryOllama(text, tools = []) {
+export async function queryOllama(text) {
     const res = await fetch(`${OLLAMA_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             model: OLLAMA_MODEL,
             messages: [{ role: 'user', content: text }],
-            tools,
+            format: 'json',
             stream: false,
             options: {
                 num_ctx: OLLAMA_NUM_CTX,

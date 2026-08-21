@@ -14,10 +14,13 @@ Tools:
 - agent_find_and_get_a_parcel() agent finds and takes a parcel
 
 State conditions (usable inside "if"/"loop"):  
-- carrying_less_than(n): true if number of parcels currently carried is less than n
-- carrying_at_least(n): true if number of parcels currently carried is at least n
-- free_parcels_exist  
-- at_delivery_tile  
+- carrying_less_than(n): Matteo is carrying fewer than n parcels  
+- carrying_at_least(n): Matteo is carrying at least n parcels  
+- free_parcels_exist: at least one free parcel is currently visible (Matteo's view)  
+- at_delivery_tile: Matteo is standing on a delivery tile  
+- agent_carrying_less_than(n): agent4 is carrying fewer than n parcels  
+- agent_carrying_at_least(n): agent4 is carrying at least n parcels  
+- agent_free_parcels_exist: at least one free parcel is currently visible to agent4
   
 Respond with ONLY this JSON shape, nothing else:  
 {  
@@ -66,5 +69,5 @@ Rules:
 - Discard intrusction entirely if there are confilcting experiences or contraddictions or negative outcome.
 - Agents have a body so 2 agents cannot stand on the same tile at the same time.
 Experience
-Delivering exactly 5 parcels in one stack results in 0.3x the standard reward.
-Delivering at (0,0) results in 0 points.
+- You get 52 points when you deliver at (9, 9).
+- Receiving a 200 points bonus if a parcel picked up by one agent is delivered by another.

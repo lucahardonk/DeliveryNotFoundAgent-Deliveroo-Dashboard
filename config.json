@@ -24,7 +24,7 @@
     {
       "name": "agent4",
       "type": "bdi_llm_test",
-      "enabled": false,
+      "enabled": true,
       "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImY3OTE2YyIsIm5hbWUiOiJhZ2VudDQiLCJyb2xlIjoidXNlciIsImlhdCI6MTc4NDgxOTczNX0.1ACBwDfIwwExEj_gZbTI2tsT10hnMaaggPcBRdPGkX8"
     },
     {

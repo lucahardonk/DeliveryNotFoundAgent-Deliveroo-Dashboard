@@ -18,6 +18,7 @@ export class BdiLlmTestAgent {
         this.me = null;
         this.parcels = [];
         this.agents = [];
+        this.carriedCount = 0;
 
         this.httpServer = null;
     }
@@ -67,8 +68,6 @@ export class BdiLlmTestAgent {
     findPath(goal) {
         if (!this.map || !this.me) return null;
 
-        // NOTA: adatta il filtro se il tuo formato tile è diverso
-        // (qui: t.type !== 0 = camminabile; alcuni SDK usano t.locked o t.walkable)
         const walkable = new Set(
             this.map.tiles
                 .filter((t) => t.type !== 0 && !t.locked)
@@ -112,9 +111,21 @@ export class BdiLlmTestAgent {
         return null;
     }
 
-    // ── MCP server: espone i comandi di questo agente come tool ──────────────
-    // Modalità STATELESS: un nuovo McpServer + transport per OGNI richiesta POST.
+    // Trova il parcel libero più vicino tra quelli visibili
+    nearestFreeParcel() {
+        if (!this.me || !this.parcels.length) return null;
+        const free = this.parcels.filter((p) => !p.carriedBy);
+        if (!free.length) return null;
 
+        const me = { x: Math.round(this.me.x), y: Math.round(this.me.y) };
+        free.sort((a, b) =>
+            (Math.abs(a.x - me.x) + Math.abs(a.y - me.y)) -
+            (Math.abs(b.x - me.x) + Math.abs(b.y - me.y))
+        );
+        return free[0];
+    }
+
+    // ── MCP server: espone i comandi di questo agente come tool ──────────────
     buildMcpServer() {
         const text = (obj) => ({ content: [{ type: 'text', text: JSON.stringify(obj) }] });
         const pos = () => ({ x: this.me?.x, y: this.me?.y });
@@ -128,9 +139,9 @@ export class BdiLlmTestAgent {
             async ({ direction, n = 1 }) => {
                 for (let i = 0; i < n; i++) {
                     const ok = await this.socket.emitMove(direction);
-                    if (!ok) return text({ error: `move ${direction} failed at step ${i + 1} (blocked?)`, position: pos() });
+                    if (!ok) return text({ success: false, message: `move ${direction} failed at step ${i + 1} (blocked?)`, position: pos() });
                 }
-                return text({ success: true, position: pos() });
+                return text({ success: true, message: `moved ${direction} x${n}`, position: pos() });
             },
         );
 
@@ -140,12 +151,12 @@ export class BdiLlmTestAgent {
             { x: z.number().int(), y: z.number().int() },
             async ({ x, y }) => {
                 const dirs = this.findPath({ x, y });
-                if (!dirs) return text({ error: `No path to (${x},${y}) or tile not walkable`, position: pos() });
+                if (!dirs) return text({ success: false, message: `no path to (${x},${y}) or tile not walkable`, position: pos() });
                 for (const dir of dirs) {
                     const ok = await this.socket.emitMove(dir);
-                    if (!ok) return text({ error: `move ${dir} failed en route to (${x},${y})`, position: pos() });
+                    if (!ok) return text({ success: false, message: `move ${dir} failed en route to (${x},${y})`, position: pos() });
                 }
-                return text({ success: true, position: pos() });
+                return text({ success: true, message: `arrived at (${x},${y})`, position: pos() });
             },
         );
 
@@ -155,7 +166,9 @@ export class BdiLlmTestAgent {
             {},
             async () => {
                 const result = await this.socket.emitPickup();
-                return text({ success: true, result, position: pos() });
+                const ok = Boolean(result && (Array.isArray(result) ? result.length : true));
+                if (ok) this.carriedCount += 1;
+                return text({ success: ok, message: ok ? 'parcel picked up' : 'no parcel to pick up here', position: pos() });
             },
         );
 
@@ -165,18 +178,48 @@ export class BdiLlmTestAgent {
             {},
             async () => {
                 const result = await this.socket.emitPutdown();
-                return text({ success: true, result, position: pos() });
+                const ok = Boolean(result);
+                if (ok) this.carriedCount = 0;
+                return text({ success: ok, message: ok ? 'parcel(s) put down' : 'could not put down here', position: pos() });
+            },
+        );
+
+        server.tool(
+            'find_and_get_parcel_agent',
+            'Agent4 locates the nearest free parcel, moves to it, and picks it up.',
+            {},
+            async () => {
+                const target = this.nearestFreeParcel();
+                if (!target) return text({ success: false, message: 'no free parcels visible', position: pos() });
+
+                const dirs = this.findPath({ x: target.x, y: target.y });
+                if (!dirs) return text({ success: false, message: 'no path to nearest parcel', position: pos() });
+
+                for (const dir of dirs) {
+                    const ok = await this.socket.emitMove(dir);
+                    if (!ok) return text({ success: false, message: `blocked moving ${dir}`, position: pos() });
+                }
+
+                const result = await this.socket.emitPickup();
+                const picked = Boolean(result && (Array.isArray(result) ? result.length : true));
+                if (picked) this.carriedCount += 1;
+                return text({
+                    success: picked,
+                    message: picked ? `picked up parcel ${target.id}` : 'pickup failed on arrival',
+                    position: pos(),
+                });
             },
         );
 
         server.tool(
             'get_agent_state',
-            'Get Agent4 current position and nearby parcels/agents.',
+            'Get Agent4 current position, parcels carried, and nearby parcels/agents.',
             {},
             async () => text({
                 position: pos(),
                 score: this.me?.score,
-                parcelsVisible: this.parcels.length,
+                carrying: this.carriedCount,
+                parcelsVisible: this.parcels.filter((p) => !p.carriedBy).length,
                 agentsVisible: this.agents.length,
             }),
         );
@@ -203,7 +246,6 @@ export class BdiLlmTestAgent {
             }
         });
 
-        // In modalità stateless GET (SSE) e DELETE non sono supportati.
         const notAllowed = (req, res) => res.status(405).json({
             jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null,
         });
